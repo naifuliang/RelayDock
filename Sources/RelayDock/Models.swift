@@ -5,6 +5,116 @@ struct EndpointProfile: Codable, Equatable {
     var displayName: String = "Sub2API"
 }
 
+enum ProviderKind: String, Codable, CaseIterable, Identifiable {
+    case openAICompatible
+    case openAIResponses
+    case azureOpenAI
+    case anthropic
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .openAICompatible: return "OpenAI Compatible"
+        case .openAIResponses: return "OpenAI Responses"
+        case .azureOpenAI: return "Azure OpenAI"
+        case .anthropic: return "Anthropic"
+        }
+    }
+
+    var openCodePackage: String {
+        switch self {
+        case .openAICompatible: return "@ai-sdk/openai-compatible"
+        case .openAIResponses: return "@ai-sdk/openai"
+        case .azureOpenAI: return "@ai-sdk/azure"
+        case .anthropic: return "@ai-sdk/anthropic"
+        }
+    }
+}
+
+struct GatewayModel: Codable, Equatable, Identifiable {
+    var id = UUID()
+    var modelID: String = ""
+    var displayName: String = ""
+    var isEnabled = true
+}
+
+struct GatewayProfile: Codable, Equatable, Identifiable {
+    var id = UUID()
+    var displayName = "New Gateway"
+    var provider: ProviderKind = .openAICompatible
+    var baseURL = ""
+    var isEnabled = true
+    var models: [GatewayModel] = []
+    var azureAPIVersion = "v1"
+    var azureDeploymentBasedURLs = false
+
+    static func migrated(from legacy: EndpointProfile) -> GatewayProfile {
+        GatewayProfile(
+            displayName: legacy.displayName,
+            provider: .openAICompatible,
+            baseURL: legacy.baseURL,
+            models: []
+        )
+    }
+
+    var providerID: String {
+        "relaydock-" + id.uuidString.lowercased()
+    }
+}
+
+struct GitHubRelease: Decodable, Equatable {
+    struct Asset: Decodable, Equatable {
+        let name: String
+        let browserDownloadURL: URL
+        let digest: String?
+
+        enum CodingKeys: String, CodingKey {
+            case name
+            case browserDownloadURL = "browser_download_url"
+            case digest
+        }
+    }
+
+    let tagName: String
+    let htmlURL: URL
+    let draft: Bool
+    let prerelease: Bool
+    let assets: [Asset]
+
+    enum CodingKeys: String, CodingKey {
+        case tagName = "tag_name"
+        case htmlURL = "html_url"
+        case draft
+        case prerelease
+        case assets
+    }
+
+    var version: String { tagName.trimmingCharacters(in: CharacterSet(charactersIn: "vV")) }
+}
+
+enum VersionComparator {
+    static func isNewer(_ candidate: String, than current: String) -> Bool {
+        let lhs = components(candidate)
+        let rhs = components(current)
+        for index in 0..<max(lhs.count, rhs.count) {
+            let left = index < lhs.count ? lhs[index] : 0
+            let right = index < rhs.count ? rhs[index] : 0
+            if left != right { return left > right }
+        }
+        return false
+    }
+
+    private static func components(_ value: String) -> [Int] {
+        value
+            .trimmingCharacters(in: CharacterSet(charactersIn: "vV"))
+            .split(separator: ".")
+            .map { component in
+                Int(component.prefix { $0.isNumber }) ?? 0
+            }
+    }
+}
+
 struct ProxyEvent: Identifiable, Equatable {
     enum Kind: String {
         case connected

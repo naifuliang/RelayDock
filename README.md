@@ -8,17 +8,25 @@ The icon is hand-drawn from deterministic vector geometry. Edit
 `Assets/AppIcon.svg` or the matching dimensions in `scripts/render-icon.swift`;
 `scripts/build-icon.sh` renders the PNG and ICNS assets.
 
-Version 0.1.0 is intentionally a **Probe MVP**. It answers one important question safely: does Cursor's Anthropic BYOK traffic connect directly from the Mac to `api.anthropic.com`, or is it relayed through Cursor's backend? It does not yet redirect or decrypt Anthropic traffic.
+Version 0.2.0 adds a multi-endpoint workspace, OpenCode integration, and GitHub update checks. Cursor remains an explicit **Probe MVP**: RelayDock observes whether Anthropic BYOK traffic connects directly from the Mac, but does not yet redirect or decrypt Cursor traffic.
 
-## Current MVP
+## Current features
 
+- Multiple independent gateways with OpenAI-compatible, OpenAI Responses,
+  Azure OpenAI, and Anthropic modes.
+- Multiple selectable model IDs and a separate Keychain API key per endpoint.
+- One-click generation of an isolated OpenCode configuration through the
+  official `OPENCODE_CONFIG` mechanism. Existing global config is not replaced.
+- OpenCode keys are exported only to RelayDock-owned files with mode `0600` and
+  referenced through OpenCode's `{file:...}` substitution.
+- Automatic daily GitHub Release checks and direct DMG download with the
+  GitHub-published SHA-256 digest verified when available.
 - Native SwiftUI window and menu bar utility.
-- Sub2API endpoint profile with API keys stored in macOS Keychain.
 - Endpoint health check through `GET /v1/models`.
 - Local HTTP CONNECT probe bound to `127.0.0.1` on a random port.
 - Cursor launcher using an app-scoped `--proxy-server` argument.
 - Domain-only connection diagnostics; TLS payloads remain encrypted.
-- One-click removal of RelayDock settings and Keychain credentials.
+- One-click removal of settings, generated OpenCode files, and credentials.
 - No system proxy changes, root certificate installation, or HTTPS decryption in this milestone.
 
 ## Build
@@ -102,7 +110,23 @@ RELAYDOCK_INSTALLER_SIGN_IDENTITY="Developer ID Installer: Example" \
 Public distribution without Gatekeeper warnings additionally requires Apple
 Developer ID certificates and notarization.
 
-## Probe workflow
+## OpenCode workflow
+
+1. Add one or more gateways in the RelayDock sidebar.
+2. Choose the protocol, Base URL, API key, and model IDs for each endpoint.
+3. Save each endpoint, then choose **Configure and launch OpenCode**.
+4. RelayDock launches OpenCode with its isolated generated configuration;
+   global and project OpenCode configuration precedence is preserved.
+
+Quit OpenCode.app completely before launching it through RelayDock. OpenCode's
+desktop build is single-instance, so an already-running process cannot inherit
+the newly supplied `OPENCODE_CONFIG` environment variable. RelayDock detects
+this state and stops instead of reporting a false success.
+
+RelayDock detects OpenCode.app, `~/.opencode/bin`, `~/.local/bin`, Apple Silicon
+Homebrew, Intel Homebrew, or `/usr/bin`.
+
+## Cursor probe workflow
 
 1. Open RelayDock and start the probe proxy.
 2. Fully quit any existing Cursor process.

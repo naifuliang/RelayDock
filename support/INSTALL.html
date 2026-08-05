@@ -18,7 +18,7 @@
 </head>
 <body>
   <h1>安装 RelayDock</h1>
-  <p class="subtle">RelayDock 0.1.0 · Cursor 网络链路探针 MVP</p>
+  <p class="subtle">RelayDock 0.2.0 · 多端点与 OpenCode 集成</p>
 
   <div class="card">
     <strong>最简单：复制一条命令</strong>
@@ -40,13 +40,21 @@
     </ol>
   </div>
 
-  <p><strong>离线安装注意：</strong>不要直接双击脚本，也不要只把脚本拖到终端后运行。命令最前面必须有 <code>/bin/zsh</code>。完整命令看起来类似：<br><code>/bin/zsh "/Volumes/RelayDock 0.1.0/Install RelayDock.command"</code></p>
+  <p><strong>离线安装注意：</strong>不要直接双击脚本，也不要只把脚本拖到终端后运行。命令最前面必须有 <code>/bin/zsh</code>。完整命令看起来类似：<br><code>/bin/zsh "/Volumes/RelayDock 0.2.0/Install RelayDock.command"</code></p>
 
   <h2>为什么不能直接双击？</h2>
-  <p>当前个人测试包还没有 Apple Developer ID 与公证票据。直接双击会触发“无法验证是否包含恶意软件”的 Gatekeeper 提示。安装脚本会在本机执行 ad-hoc 签名，用户无需手动运行 <code>codesign</code>。上面的拖拽方式也不依赖固定卷名，因此即使系统把磁盘映像命名为 <code>RelayDock 0.1.0 2</code> 也能正确运行。</p>
+  <p>当前个人测试包还没有 Apple Developer ID 与公证票据。直接双击会触发“无法验证是否包含恶意软件”的 Gatekeeper 提示。安装脚本会在本机执行 ad-hoc 签名，用户无需手动运行 <code>codesign</code>。上面的拖拽方式也不依赖固定卷名，因此即使系统把磁盘映像命名为 <code>RelayDock 0.2.0 2</code> 也能正确运行。</p>
   <p>也可以在弹窗中点击“完成”，然后前往“系统设置 → 隐私与安全性 → 安全性”选择“仍要打开”。不要全局关闭 Gatekeeper，也不要使用 <code>spctl --master-disable</code>。</p>
 
-  <h2>开始探测</h2>
+  <h2>配置多个端点与 OpenCode</h2>
+  <ol>
+    <li>在左侧点击“+”添加 OpenAI Compatible、OpenAI Responses、Azure OpenAI 或 Anthropic 端点。</li>
+    <li>为每个端点添加一个或多个模型 ID，并分别保存 API Key。</li>
+    <li>先完全退出已经运行的 OpenCode.app，再点击“配置并启动 OpenCode”。RelayDock 使用独立的 <code>OPENCODE_CONFIG</code>，不会覆盖已有全局配置。</li>
+    <li>应用每天自动检查一次 GitHub Release，也可以在 Updates 卡片中手动检查并下载 DMG。</li>
+  </ol>
+
+  <h2>Cursor 网络探测</h2>
   <ol>
     <li>打开 RelayDock，点击“启动探测代理”。</li>
     <li>点击“重启 Cursor 并探测”。</li>
@@ -54,9 +62,9 @@
     <li>回到 RelayDock 查看是否出现 <code>api.anthropic.com</code>。</li>
   </ol>
 
-  <p class="note"><strong>范围说明：</strong>0.1.0 只观察 CONNECT 目标域名，不解密 HTTPS，也不会把 Anthropic 请求重定向到 Sub2API。是否能安全加入 TLS Bridge，取决于本次探测结果。</p>
+  <p class="note"><strong>范围说明：</strong>0.2.0 已直接支持 OpenCode 多端点；Cursor 部分仍只观察 CONNECT 目标域名，不解密 HTTPS，也不会把 Anthropic 请求重定向到 Sub2API。界面会明确区分这两项能力。</p>
 
   <h2>卸载</h2>
-  <p>右键打开 <code>Uninstall RelayDock.command</code>，它会删除 App、RelayDock 偏好设置以及保存在 Keychain 中的网关 API Key。此版本不会安装根证书或修改系统代理。</p>
+  <p>使用 <code>/bin/zsh</code> 运行 <code>Uninstall RelayDock.command</code>。它会删除 App、全部端点与 Keychain API Key，以及 RelayDock 生成的 OpenCode 配置。此版本不会安装根证书或修改系统代理。</p>
 </body>
 </html>

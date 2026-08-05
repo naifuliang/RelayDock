@@ -18,7 +18,7 @@
 </head>
 <body>
   <h1>Install RelayDock</h1>
-  <p class="subtle">RelayDock 0.1.0 · Cursor Network Probe MVP</p>
+  <p class="subtle">RelayDock 0.2.0 · Multiple endpoints and OpenCode integration</p>
 
   <div class="card">
     <strong>Easiest: paste one command</strong>
@@ -40,13 +40,21 @@
     </ol>
   </div>
 
-  <p><strong>Offline installation note:</strong> Do not double-click the script, and do not run the dragged path by itself. The command must begin with <code>/bin/zsh</code>. It should look similar to:<br><code>/bin/zsh "/Volumes/RelayDock 0.1.0/Install RelayDock.command"</code></p>
+  <p><strong>Offline installation note:</strong> Do not double-click the script, and do not run the dragged path by itself. The command must begin with <code>/bin/zsh</code>. It should look similar to:<br><code>/bin/zsh "/Volumes/RelayDock 0.2.0/Install RelayDock.command"</code></p>
 
   <h2>Why not double-click?</h2>
-  <p>This personal test build does not yet have an Apple Developer ID or notarization ticket. Double-clicking it triggers Gatekeeper's “cannot verify” warning. The installer applies an ad-hoc signature locally, so you do not need to run <code>codesign</code> yourself. The drag-to-Terminal method also works when macOS mounts the image as <code>RelayDock 0.1.0 2</code>.</p>
+  <p>This personal test build does not yet have an Apple Developer ID or notarization ticket. Double-clicking it triggers Gatekeeper's “cannot verify” warning. The installer applies an ad-hoc signature locally, so you do not need to run <code>codesign</code> yourself. The drag-to-Terminal method also works when macOS mounts the image as <code>RelayDock 0.2.0 2</code>.</p>
   <p>Alternatively, dismiss the warning with <strong>Done</strong>, then use <strong>System Settings → Privacy &amp; Security → Security → Open Anyway</strong>. Do not disable Gatekeeper globally and do not use <code>spctl --master-disable</code>.</p>
 
-  <h2>Run the probe</h2>
+  <h2>Configure multiple endpoints and OpenCode</h2>
+  <ol>
+    <li>Use “+” in the sidebar to add OpenAI Compatible, OpenAI Responses, Azure OpenAI, or Anthropic endpoints.</li>
+    <li>Add one or more model IDs to each endpoint and save its API key separately.</li>
+    <li>Quit any running OpenCode.app instance, then choose <strong>Configure and launch OpenCode</strong>. RelayDock uses an isolated <code>OPENCODE_CONFIG</code> and does not replace your existing global config.</li>
+    <li>RelayDock checks GitHub Releases once per day. You can also check manually and download the DMG from the Updates card.</li>
+  </ol>
+
+  <h2>Cursor network probe</h2>
   <ol>
     <li>Open RelayDock and click <strong>启动探测代理</strong> (Start Probe Proxy).</li>
     <li>Click <strong>重启 Cursor 并探测</strong> (Restart Cursor and Probe).</li>
@@ -54,9 +62,9 @@
     <li>Return to RelayDock and check whether <code>api.anthropic.com</code> appears.</li>
   </ol>
 
-  <p class="note"><strong>Scope:</strong> version 0.1.0 observes CONNECT destination hostnames only. It does not decrypt HTTPS or redirect Anthropic requests to Sub2API. Whether a scoped TLS bridge is viable depends on the probe result.</p>
+  <p class="note"><strong>Scope:</strong> version 0.2.0 directly supports multiple OpenCode endpoints. Cursor remains a CONNECT destination probe: it does not decrypt HTTPS or redirect Anthropic requests to Sub2API. The UI keeps these capabilities explicitly separate.</p>
 
   <h2>Uninstall</h2>
-  <p>Right-click <code>Uninstall RelayDock.command</code> and choose Open. It removes the app, RelayDock preferences, and the gateway API key stored in Keychain. This version does not install a root certificate or change the system proxy.</p>
+  <p>Run <code>Uninstall RelayDock.command</code> through <code>/bin/zsh</code>. It removes the app, all endpoints and Keychain API keys, and RelayDock's generated OpenCode configuration. This version does not install a root certificate or change the system proxy.</p>
 </body>
 </html>
