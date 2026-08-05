@@ -2,18 +2,41 @@
 
 RelayDock is a native macOS launcher and endpoint bridge project for AI coding tools.
 
+## Fastest installation
+
+Paste this one command into Terminal:
+
+```bash
+/usr/bin/curl -fsSL https://raw.githubusercontent.com/naifuliang/RelayDock/main/install.sh | /bin/zsh
+```
+
+The installer downloads the latest Universal release from GitHub, verifies its
+published SHA-256 checksum and app signature, installs RelayDock in
+`/Applications`, and opens it. RelayDock is currently an unsigned,
+unnotarized test build; the installer explains every local change and asks for
+confirmation before continuing.
+
 <img src="Assets/AppIcon.png" alt="RelayDock app icon" width="180">
 
 The icon is hand-drawn from deterministic vector geometry. Edit
 `Assets/AppIcon.svg` or the matching dimensions in `scripts/render-icon.swift`;
 `scripts/build-icon.sh` renders the PNG and ICNS assets.
 
-Version 0.3.1 adds a verified in-app upgrade flow and visible update-check results. It retains the 0.3 multi-endpoint workspace, automatic model discovery, per-model verification, and direct OpenCode/Cursor launch actions. Cursor remains an explicit **Probe MVP**: RelayDock observes whether Anthropic BYOK traffic connects directly from the Mac, but does not yet redirect or decrypt Cursor traffic.
+Version 0.4.0 adds safe quick-connect presets for OpenAI API, Kimi Code, and
+Volcengine Ark Coding Plan, plus a neutral `Gateway 1` default. It retains the
+verified update flow, multi-endpoint workspace, automatic model discovery,
+per-model verification, and direct OpenCode/Cursor launch actions. Cursor
+remains an explicit **Probe MVP**: RelayDock observes whether Anthropic BYOK
+traffic connects directly from the Mac, but does not yet redirect or decrypt
+Cursor traffic.
 
 ## Current features
 
 - Multiple independent gateways with OpenAI-compatible, OpenAI Responses,
   Azure OpenAI, and Anthropic modes.
+- Quick-connect presets for the OpenAI API, Kimi Code, and Volcengine
+  Ark Coding Plan. A preset fills the supported protocol and official API base;
+  the user still supplies that service's API key.
 - Automatic model discovery after an endpoint/key connection test.
 - One-click verification of every enabled model with per-model results.
 - Multiple selectable model IDs and a separate Keychain API key per endpoint.
@@ -59,14 +82,6 @@ swift run RelayDock
 ```
 
 ## Installer packages
-
-### Fastest installation for the unsigned test build
-
-Paste this single line into Terminal:
-
-```bash
-/usr/bin/curl -fsSL https://raw.githubusercontent.com/naifuliang/RelayDock/main/install.sh | /bin/zsh
-```
 
 The script explains its actions before asking for confirmation. It downloads
 the latest Universal release from GitHub, checks its published SHA-256 hash and
@@ -135,8 +150,9 @@ Developer ID certificates and notarization.
 
 ## OpenCode workflow
 
-1. Add one or more endpoints inside the single **Endpoints** configuration card.
-2. Choose the protocol, Base URL, and API key, then use **Sync Models** to test
+1. Use a quick-connect preset for OpenAI API, Kimi Code, or Ark Coding
+   Plan, or add a custom endpoint inside the single **Endpoints** card.
+2. Enter the service API key, then use **Sync Models** to test
    the connection and fetch the endpoint's model catalog.
 3. Use **Verify All** to send a minimal request to every enabled model and see
    its individual result. This can incur a very small amount of API usage.
@@ -151,6 +167,21 @@ this state and stops instead of reporting a false success.
 
 RelayDock detects OpenCode.app, `~/.opencode/bin`, `~/.local/bin`, Apple Silicon
 Homebrew, Intel Homebrew, or `/usr/bin`.
+
+### What quick connect means
+
+Quick connect creates a RelayDock endpoint with a known compatible protocol and
+API base URL. It does not purchase a plan, sign in to a provider account, or
+convert a web subscription into API access. OpenAI requires an OpenAI Platform
+API key (a ChatGPT Plus/Pro subscription is separate); Kimi Code uses a
+dedicated Kimi Code Console key that is not interchangeable with a Kimi API
+Platform key; and Ark Coding Plan uses its
+provider-issued Coding Plan API key. Kimi Code and Ark presets include their
+documented recommended model aliases as a fallback when catalog discovery is
+unavailable; **Sync Models** still replaces them with the returned catalog when
+the provider exposes one.
+
+RelayDock writes the key to macOS Keychain only when the endpoint is saved.
 
 ## Cursor probe workflow
 

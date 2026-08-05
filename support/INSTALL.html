@@ -18,7 +18,7 @@
 </head>
 <body>
   <h1>安装 RelayDock</h1>
-  <p class="subtle">RelayDock 0.3.1 · 可验证升级、多端点与模型发现</p>
+  <p class="subtle">RelayDock 0.4.0 · Coding 服务快速接入、多端点与可验证升级</p>
 
   <div class="card">
     <strong>最简单：复制一条命令</strong>
@@ -41,7 +41,7 @@
     </ol>
   </div>
 
-  <p><strong>离线安装注意：</strong>不要直接双击脚本，也不要只把脚本拖到终端后运行。命令最前面必须有 <code>/bin/zsh</code>。完整命令看起来类似：<br><code>/bin/zsh "/Volumes/RelayDock 0.3.1/Install RelayDock.command"</code></p>
+  <p><strong>离线安装注意：</strong>不要直接双击脚本，也不要只把脚本拖到终端后运行。命令最前面必须有 <code>/bin/zsh</code>。完整命令看起来类似：<br><code>/bin/zsh "/Volumes/RelayDock 0.4.0/Install RelayDock.command"</code></p>
 
   <h2>为什么不能直接双击？</h2>
   <p>当前个人测试包还没有 Apple Developer ID 与公证票据。直接双击会触发“无法验证是否包含恶意软件”的 Gatekeeper 提示。安装脚本会完成本地签名，用户无需手动运行 <code>codesign</code>。上面的拖拽方式不依赖固定卷名，即使系统给磁盘映像添加数字后缀也能正确运行。</p>
@@ -49,13 +49,15 @@
 
   <h2>配置多个端点与 OpenCode</h2>
   <ol>
-    <li>在同一张 Endpoints 配置卡里点击“添加 Endpoint”，添加 OpenAI Compatible、OpenAI Responses、Azure OpenAI 或 Anthropic 端点。</li>
-    <li>填写 URL 和 Key 后点击“同步模型”，RelayDock 会测试连接并自动获取模型列表。</li>
+    <li>可直接选择 OpenAI API、Kimi Code 或火山方舟 Coding Plan 快速接入，也可以在同一张 Endpoints 配置卡里手动添加 OpenAI Compatible、OpenAI Responses、Azure OpenAI 或 Anthropic 端点。</li>
+    <li>填写对应服务的 API Key 后点击“同步模型”，RelayDock 会测试连接并自动获取模型列表。快速接入只会预填兼容协议与官方 API 地址，不会购买套餐、登录服务商账号或把网页会员转换成 API 权限。</li>
     <li>点击“一键验证全部”，RelayDock 会向每个已启用模型发送最小请求并分别显示成功或失败；这可能产生极少量 API 用量。</li>
     <li>Azure 已停用旧版 deployment 列表接口，因此旧 deployment URL 模式需要手动添加 deployment ID 后再“一键验证”；现代 Azure v1 端点仍可同步模型。</li>
     <li>先完全退出已经运行的 OpenCode.app，再点击“配置并启动 OpenCode”。RelayDock 使用独立的 <code>OPENCODE_CONFIG</code>，不会覆盖已有全局配置。</li>
     <li>应用每天自动检查一次 GitHub Release，Updates 卡片会显示结果与时间。发现更新后，“下载并安装”会校验 digest、挂载后 App 的签名与版本，打开安装器，并在重启 RelayDock 前确认已安装版本。</li>
   </ol>
+
+  <p class="note"><strong>Key 说明：</strong>OpenAI 需要 OpenAI Platform API Key，ChatGPT Plus/Pro 与 API 使用相互独立；Kimi Code 需要 Kimi Code Console 专用 Key，不能与 Kimi API Platform Key 混用；火山方舟 Coding Plan 需要服务商签发的 Coding Plan API Key。Kimi Code 与方舟预设会保留官方推荐的模型别名作为模型目录不可用时的兜底；若“同步模型”成功返回目录，RelayDock 会使用实际目录。Key 仅在保存端点时写入 macOS Keychain。</p>
 
   <h2>Cursor 网络探测</h2>
   <ol>
@@ -65,7 +67,7 @@
     <li>回到 RelayDock 查看是否出现 <code>api.anthropic.com</code>。</li>
   </ol>
 
-  <p class="note"><strong>范围说明：</strong>0.3.0 已直接支持 OpenCode 多端点，并可一键普通启动 OpenCode 与 Cursor；Cursor 的端点能力仍只做 CONNECT 目标探测，不解密 HTTPS，也不会把 Anthropic 请求重定向到 Sub2API。界面会明确区分这些能力。</p>
+  <p class="note"><strong>范围说明：</strong>0.4.0 支持 OpenCode 多端点及 Coding 服务快速接入，并可一键普通启动 OpenCode 与 Cursor；Cursor 的端点能力仍只做 CONNECT 目标探测，不解密 HTTPS，也不会把 Anthropic 请求重定向到第三方网关。界面会明确区分这些能力。</p>
 
   <h2>卸载</h2>
   <p>使用 <code>/bin/zsh</code> 运行 <code>Uninstall RelayDock.command</code>。它会删除 App、全部端点与 Keychain API Key、RelayDock 生成的 OpenCode 配置，以及私有本地签名 Keychain。此版本不会安装根证书或修改系统代理。</p>

@@ -4,6 +4,7 @@ struct ContentView: View {
     private enum PendingNavigation {
         case add
         case select(UUID)
+        case preset(EndpointPreset)
     }
 
     @ObservedObject var model: AppModel
@@ -20,6 +21,7 @@ struct ContentView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     pageHeader
+                    quickConnectCard
                     endpointConfigurationCard
                     launcherCard
                     updateCard
@@ -144,6 +146,47 @@ struct ContentView: View {
         }
     }
 
+    private var quickConnectCard: some View {
+        cleanCard {
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Coding 服务快速接入").font(.title3.bold())
+                    Text("一键添加官方兼容配置；RelayDock 不代购套餐、不登录服务商账户，也不会复用网页订阅。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                HStack(spacing: 12) {
+                    ForEach(EndpointPreset.allCases) { preset in
+                        quickConnectTile(preset)
+                    }
+                }
+            }
+        }
+    }
+
+    private func quickConnectTile(_ preset: EndpointPreset) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: presetIcon(preset)).font(.title3)
+                Text(preset.title).fontWeight(.semibold)
+                Spacer()
+            }
+            Text(preset.detail)
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("Key 仅在保存时写入 macOS Keychain")
+                .font(.caption2).foregroundStyle(.tertiary)
+            Button("添加配置", systemImage: "plus") { attemptAddPreset(preset) }
+                .buttonStyle(.bordered)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, minHeight: 132, alignment: .topLeading)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .stroke(Color.black.opacity(0.085), lineWidth: 1)
+        )
+    }
+
     private func endpointRow(_ profile: GatewayProfile) -> some View {
         Button { attemptSelectProfile(profile.id) } label: {
             HStack(spacing: 10) {
@@ -200,6 +243,10 @@ struct ContentView: View {
             }
             formRow("API Key") {
                 SecureField("安全保存到 macOS Keychain", text: $model.apiKey)
+            }
+            if let preset = EndpointPreset.matching(model.draftProfile) {
+                Label(preset.credentialHelp, systemImage: "key.fill")
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
             Divider().padding(.vertical, 2)
@@ -488,6 +535,14 @@ struct ContentView: View {
         model.draftProfile.provider == .azureOpenAI && model.draftProfile.azureDeploymentBasedURLs
     }
 
+    private func presetIcon(_ preset: EndpointPreset) -> String {
+        switch preset {
+        case .openAI: return "sparkles"
+        case .kimi: return "moon.stars"
+        case .arkCodingPlan: return "flame"
+        }
+    }
+
     private func attemptSelectProfile(_ id: UUID) {
         guard id != model.selectedProfileID else { return }
         if model.hasUnsavedProfileChanges {
@@ -503,15 +558,26 @@ struct ContentView: View {
         } else { model.addProfile() }
     }
 
+    private func attemptAddPreset(_ preset: EndpointPreset) {
+        if model.hasUnsavedProfileChanges {
+            pendingNavigation = .preset(preset)
+            showUnsavedChanges = true
+        } else { model.addProfile(from: preset) }
+    }
+
     private func performPendingNavigation(saveFirst: Bool) {
         guard let pendingNavigation else { return }
         if saveFirst, !model.saveSelectedProfile() {
             self.pendingNavigation = nil
             return
         }
+        if !saveFirst {
+            model.discardSelectedProfileChanges()
+        }
         switch pendingNavigation {
         case .add: model.addProfile()
         case let .select(id): model.selectProfile(id)
+        case let .preset(preset): model.addProfile(from: preset)
         }
         self.pendingNavigation = nil
     }
