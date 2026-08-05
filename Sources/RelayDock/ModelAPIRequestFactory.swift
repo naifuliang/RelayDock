@@ -95,7 +95,10 @@ enum ModelAPIRequestFactory {
 
     private static func append(_ base: URL, path: String, underV1: Bool) -> URL {
         let trimmedPath = base.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        if underV1, !trimmedPath.hasSuffix("v1") {
+        let lastComponent = trimmedPath.split(separator: "/").last.map(String.init) ?? ""
+        let isVersionedAPIRoot = lastComponent.first?.lowercased() == "v"
+            && Int(lastComponent.dropFirst()) != nil
+        if underV1, !isVersionedAPIRoot {
             return base.appendingPathComponent("v1").appendingPathComponent(path)
         }
         return base.appendingPathComponent(path)

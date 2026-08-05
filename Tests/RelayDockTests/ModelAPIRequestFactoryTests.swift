@@ -65,4 +65,21 @@ final class ModelAPIRequestFactoryTests: XCTestCase {
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
         XCTAssertEqual(json["max_output_tokens"] as? Int, 16)
     }
+
+    func testArkCodingPlanVersionedRootDoesNotGainAnExtraV1() throws {
+        let profile = EndpointPreset.arkCodingPlan.makeProfile()
+        let catalog = try ModelAPIRequestFactory.catalog(profile: profile, apiKey: "ark-secret")
+        XCTAssertEqual(catalog.url?.absoluteString, "https://ark.cn-beijing.volces.com/api/coding/v3/models")
+        XCTAssertEqual(catalog.value(forHTTPHeaderField: "Authorization"), "Bearer ark-secret")
+
+        let probe = try ModelAPIRequestFactory.probe(
+            profile: profile,
+            modelID: "ark-code-latest",
+            apiKey: "ark-secret"
+        )
+        XCTAssertEqual(
+            probe.url?.absoluteString,
+            "https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions"
+        )
+    }
 }

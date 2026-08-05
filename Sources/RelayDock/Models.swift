@@ -2,7 +2,7 @@ import Foundation
 
 struct EndpointProfile: Codable, Equatable {
     var baseURL: String = ""
-    var displayName: String = "Sub2API"
+    var displayName: String = "Gateway 1"
 }
 
 enum ProviderKind: String, Codable, CaseIterable, Identifiable {
@@ -40,8 +40,10 @@ struct GatewayModel: Codable, Equatable, Identifiable {
 }
 
 struct GatewayProfile: Codable, Equatable, Identifiable {
+    static let defaultDisplayName = "Gateway 1"
+
     var id = UUID()
-    var displayName = "New Gateway"
+    var displayName = GatewayProfile.defaultDisplayName
     var provider: ProviderKind = .openAICompatible
     var baseURL = ""
     var isEnabled = true
@@ -60,6 +62,98 @@ struct GatewayProfile: Codable, Equatable, Identifiable {
 
     var providerID: String {
         "relaydock-" + id.uuidString.lowercased()
+    }
+
+    var isPristineDefault: Bool {
+        displayName == Self.defaultDisplayName
+            && provider == .openAICompatible
+            && baseURL.isEmpty
+            && isEnabled
+            && models.isEmpty
+            && azureAPIVersion == "v1"
+            && !azureDeploymentBasedURLs
+    }
+}
+
+enum EndpointPreset: String, CaseIterable, Identifiable {
+    case openAI
+    case kimi
+    case arkCodingPlan
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .openAI: return "ChatGPT / OpenAI"
+        case .kimi: return "Kimi Code"
+        case .arkCodingPlan: return "火山方舟"
+        }
+    }
+
+    var profileName: String {
+        switch self {
+        case .openAI: return "OpenAI API"
+        case .kimi: return "Kimi Code"
+        case .arkCodingPlan: return "Ark Coding Plan"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .openAI: return "OpenAI Responses API；ChatGPT Plus/Pro 不能替代 API Key。"
+        case .kimi: return "Kimi Code 会员服务的 OpenAI 兼容接口。"
+        case .arkCodingPlan: return "方舟 Coding Plan 专用网关，预置推荐模型兜底。"
+        }
+    }
+
+    var credentialHelp: String {
+        switch self {
+        case .openAI: return "需要 OpenAI Platform API Key；与 ChatGPT 登录或订阅分开。"
+        case .kimi: return "需要 Kimi Code Console 创建的专用 Key；与开放平台 Key 不互通。"
+        case .arkCodingPlan: return "需要已开通 Coding Plan 后由方舟控制台签发的 API Key。"
+        }
+    }
+
+    var provider: ProviderKind {
+        switch self {
+        case .openAI: return .openAIResponses
+        case .kimi, .arkCodingPlan: return .openAICompatible
+        }
+    }
+
+    var baseURL: String {
+        switch self {
+        case .openAI: return "https://api.openai.com/v1"
+        case .kimi: return "https://api.kimi.com/coding/v1"
+        case .arkCodingPlan: return "https://ark.cn-beijing.volces.com/api/coding/v3"
+        }
+    }
+
+    func makeProfile(id: UUID = UUID()) -> GatewayProfile {
+        GatewayProfile(
+            id: id,
+            displayName: profileName,
+            provider: provider,
+            baseURL: baseURL,
+            models: fallbackModels
+        )
+    }
+
+    var fallbackModels: [GatewayModel] {
+        switch self {
+        case .openAI: return []
+        case .kimi:
+            return [GatewayModel(modelID: "kimi-for-coding", displayName: "Kimi for Coding")]
+        case .arkCodingPlan:
+            return [GatewayModel(modelID: "ark-code-latest", displayName: "Ark Code Latest")]
+        }
+    }
+
+    static func matching(_ profile: GatewayProfile) -> EndpointPreset? {
+        allCases.first {
+            $0.provider == profile.provider
+                && $0.baseURL == profile.baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        }
     }
 }
 

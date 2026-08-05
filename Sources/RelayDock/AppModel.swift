@@ -22,7 +22,7 @@ final class AppModel: ObservableObject {
         didSet { defaults.set(automaticUpdateChecks, forKey: Self.automaticUpdatesKey) }
     }
 
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
     private var proxy: ProbeProxy?
     private var activeProxyToken: UUID?
     private var catalogTask: Task<Void, Never>?
@@ -37,11 +37,12 @@ final class AppModel: ObservableObject {
     private static let lastUpdateOutcomeKey = "lastUpdateOutcome"
     private static let lastCheckedAppVersionKey = "lastCheckedAppVersion"
 
-    init() {
+    init(defaults: UserDefaults = .standard, scheduleAutomaticUpdateCheck: Bool = true) {
+        self.defaults = defaults
         #if DEBUG
         if ProcessInfo.processInfo.environment["RELAYDOCK_UI_PREVIEW"] == "1" {
             let first = GatewayProfile(
-                displayName: "Sub2API OpenAI",
+                displayName: "Gateway 1",
                 provider: .openAICompatible,
                 baseURL: "https://api.example.com/v1",
                 models: [
@@ -65,7 +66,6 @@ final class AppModel: ObservableObject {
         }
         #endif
 
-        let defaults = UserDefaults.standard
         let decodedProfiles = defaults.data(forKey: Self.profilesKey)
             .flatMap { try? JSONDecoder().decode([GatewayProfile].self, from: $0) }
         var migratedLegacy = false
@@ -77,7 +77,7 @@ final class AppModel: ObservableObject {
             initialProfiles = [GatewayProfile.migrated(from: legacy)]
             migratedLegacy = true
         } else {
-            initialProfiles = [GatewayProfile(displayName: "Sub2API")]
+            initialProfiles = [GatewayProfile()]
         }
 
         profiles = initialProfiles
@@ -105,7 +105,7 @@ final class AppModel: ObservableObject {
                 statusMessage = "旧配置暂未迁移，将在下次启动重试：\(error.localizedDescription)"
             }
         }
-        if automaticUpdateChecks {
+        if automaticUpdateChecks && scheduleAutomaticUpdateCheck {
             Task { [weak self] in
                 try? await Task.sleep(for: .seconds(1))
                 await self?.checkForUpdates(silent: true)
@@ -141,6 +141,14 @@ final class AppModel: ObservableObject {
         statusMessage = "已切换到 \(profile.displayName)"
     }
 
+    func discardSelectedProfileChanges() {
+        guard let profile = profiles.first(where: { $0.id == selectedProfileID }) else { return }
+        cancelEndpointOperations()
+        draftProfile = profile
+        apiKey = savedAPIKey
+        statusMessage = "已放弃未保存的更改"
+    }
+
     func addProfile() {
         cancelEndpointOperations()
         let profile = GatewayProfile(displayName: "Gateway \(profiles.count + 1)")
@@ -148,6 +156,25 @@ final class AppModel: ObservableObject {
         persistProfiles()
         selectProfile(profile.id)
         statusMessage = "已添加新端点"
+    }
+
+    func addProfile(from preset: EndpointPreset) {
+        cancelEndpointOperations()
+        let shouldReplacePristineDefault = profiles.count == 1
+            && profiles[0].isPristineDefault
+            && apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && savedAPIKey.isEmpty
+        let profile: GatewayProfile
+        if shouldReplacePristineDefault {
+            profile = preset.makeProfile(id: profiles[0].id)
+            profiles[0] = profile
+        } else {
+            profile = preset.makeProfile()
+            profiles.append(profile)
+        }
+        persistProfiles()
+        selectProfile(profile.id)
+        statusMessage = "已添加 \(preset.profileName)；请填写服务商 API Key 后同步模型"
     }
 
     func deleteSelectedProfile() {
@@ -531,7 +558,7 @@ final class AppModel: ObservableObject {
             defaults.removeObject(forKey: Self.lastCheckedAppVersionKey)
             try KeychainStore.removeAll()
             try OpenCodeIntegration.removeGeneratedFiles()
-            let profile = GatewayProfile(displayName: "Sub2API")
+            let profile = GatewayProfile()
             profiles = [profile]
             selectedProfileID = profile.id
             draftProfile = profile

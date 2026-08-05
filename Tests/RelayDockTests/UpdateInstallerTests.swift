@@ -15,10 +15,16 @@ final class UpdateInstallerTests: XCTestCase {
         }
         let support = FileManager.default.temporaryDirectory
             .appendingPathComponent("RelayDockPrepareTests-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: support) }
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+        defer {
+            if FileManager.default.fileExists(atPath: support.path) {
+                try? FileManager.default.removeItem(at: support)
+            }
+        }
+        let expectedVersion = ProcessInfo.processInfo.environment["RELAYDOCK_UPDATE_TEST_VERSION"] ?? "0.3.1"
         let prepared = try UpdateInstaller.prepare(
             dmgURL: URL(fileURLWithPath: dmgPath),
-            expectedVersion: "0.3.1",
+            expectedVersion: expectedVersion,
             targetAppURL: support.appendingPathComponent("Applications/RelayDock.app"),
             supportDirectory: support,
             restartApplication: false
