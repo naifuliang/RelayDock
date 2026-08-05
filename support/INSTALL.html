@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RelayDock 安装说明</title>
+  <style>
+    :root { color-scheme: light dark; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+    body { max-width: 720px; margin: 48px auto; padding: 0 28px; line-height: 1.65; }
+    h1 { font-size: 34px; letter-spacing: -.02em; margin-bottom: 6px; }
+    h2 { margin-top: 32px; font-size: 20px; }
+    .subtle { color: #777; }
+    .card { padding: 20px 24px; border-radius: 16px; background: rgba(127,127,127,.1); margin: 18px 0; }
+    li { margin: 9px 0; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .92em; }
+    .note { border-left: 4px solid #35bdf5; padding-left: 16px; }
+  </style>
+</head>
+<body>
+  <h1>安装 RelayDock</h1>
+  <p class="subtle">RelayDock 0.1.0 · Cursor 网络链路探针 MVP</p>
+
+  <div class="card">
+    <strong>推荐安装方式</strong>
+    <ol>
+      <li>右键点击 <code>Install RelayDock.command</code>。</li>
+      <li>选择“打开”，在 macOS 提示中再次确认。</li>
+      <li>Terminal 打开后输入 <code>y</code>，并按提示输入 Mac 登录密码。</li>
+      <li>脚本会校验 App、安装到 <code>/Applications</code>、执行本地签名并启动。</li>
+    </ol>
+  </div>
+
+  <h2>为什么需要右键打开？</h2>
+  <p>当前个人测试包没有 Apple Developer ID 与公证票据。安装脚本会在本机执行 ad-hoc 签名，用户无需手动输入 <code>codesign</code>。正式公开分发仍建议使用 Developer ID 签名与 Apple notarization。</p>
+
+  <h2>开始探测</h2>
+  <ol>
+    <li>打开 RelayDock，点击“启动探测代理”。</li>
+    <li>点击“重启 Cursor 并探测”。</li>
+    <li>在 Cursor 中使用 Anthropic BYOK 发送一条测试消息。</li>
+    <li>回到 RelayDock 查看是否出现 <code>api.anthropic.com</code>。</li>
+  </ol>
+
+  <p class="note"><strong>范围说明：</strong>0.1.0 只观察 CONNECT 目标域名，不解密 HTTPS，也不会把 Anthropic 请求重定向到 Sub2API。是否能安全加入 TLS Bridge，取决于本次探测结果。</p>
+
+  <h2>卸载</h2>
+  <p>右键打开 <code>Uninstall RelayDock.command</code>，它会删除 App、RelayDock 偏好设置以及保存在 Keychain 中的网关 API Key。此版本不会安装根证书或修改系统代理。</p>
+</body>
+</html>

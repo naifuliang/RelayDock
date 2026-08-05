@@ -1,0 +1,17 @@
+#!/bin/zsh
+set -euo pipefail
+
+APP_PATH="/Applications/RelayDock.app"
+
+if [[ -d "$APP_PATH" ]]; then
+    codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+    if codesign -dv --verbose=4 "$APP_PATH" 2>&1 | grep -q "Authority=Developer ID Application"; then
+        spctl --assess --type execute --verbose=2 "$APP_PATH"
+    else
+        xattr -dr com.apple.quarantine "$APP_PATH" 2>/dev/null || true
+        codesign --force --deep --options runtime --sign - "$APP_PATH"
+        codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+    fi
+fi
+
+exit 0
