@@ -5,7 +5,8 @@ APP_PATH="/Applications/RelayDock.app"
 USER_APP_PATH="$HOME/Applications/RelayDock.app"
 
 echo "RelayDock Uninstaller"
-echo "This removes RelayDock, its preferences, generated OpenCode files, and saved gateway API keys."
+echo "This removes RelayDock, its preferences, generated OpenCode files, saved endpoint API keys,"
+echo "and its private local code-signing keychain."
 read "REPLY?Continue? [y/N] "
 
 if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
@@ -24,9 +25,11 @@ if [[ -e "$USER_APP_PATH" ]]; then
 fi
 
 /usr/bin/defaults delete app.relaydock.mac 2>/dev/null || true
+/usr/bin/security delete-keychain "$HOME/Library/Keychains/RelayDockLocalSigning.keychain-db" >/dev/null 2>&1 || true
+/bin/rm -f "$HOME/Library/Keychains/RelayDockLocalSigning.keychain-db"
 /bin/rm -rf "$HOME/Library/Application Support/RelayDock"
 while /usr/bin/security delete-generic-password -s app.relaydock.credentials >/dev/null 2>&1; do
     :
 done
 
-echo "RelayDock and its generated OpenCode configuration were removed."
+echo "RelayDock, its credentials, generated configuration, and local signing identity were removed."

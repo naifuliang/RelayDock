@@ -8,12 +8,14 @@ The icon is hand-drawn from deterministic vector geometry. Edit
 `Assets/AppIcon.svg` or the matching dimensions in `scripts/render-icon.swift`;
 `scripts/build-icon.sh` renders the PNG and ICNS assets.
 
-Version 0.2.0 adds a multi-endpoint workspace, OpenCode integration, and GitHub update checks. Cursor remains an explicit **Probe MVP**: RelayDock observes whether Anthropic BYOK traffic connects directly from the Mac, but does not yet redirect or decrypt Cursor traffic.
+Version 0.3.0 presents one clean configuration workspace containing multiple endpoints, automatically discovers each endpoint's models, verifies every enabled model with a minimal request, and adds direct OpenCode and Cursor launch actions. Cursor remains an explicit **Probe MVP**: RelayDock observes whether Anthropic BYOK traffic connects directly from the Mac, but does not yet redirect or decrypt Cursor traffic.
 
 ## Current features
 
 - Multiple independent gateways with OpenAI-compatible, OpenAI Responses,
   Azure OpenAI, and Anthropic modes.
+- Automatic model discovery after an endpoint/key connection test.
+- One-click verification of every enabled model with per-model results.
 - Multiple selectable model IDs and a separate Keychain API key per endpoint.
 - One-click generation of an isolated OpenCode configuration through the
   official `OPENCODE_CONFIG` mechanism. Existing global config is not replaced.
@@ -22,11 +24,15 @@ Version 0.2.0 adds a multi-endpoint workspace, OpenCode integration, and GitHub 
 - Automatic daily GitHub Release checks and direct DMG download with the
   GitHub-published SHA-256 digest verified when available.
 - Native SwiftUI window and menu bar utility.
-- Endpoint health check through `GET /v1/models`.
+- Provider-aware endpoint health checks and model catalog requests.
+- Catalog synchronization keeps text-generation candidates for coding tools;
+  Azure's retired legacy deployment-list mode requires manual deployment IDs.
 - Local HTTP CONNECT probe bound to `127.0.0.1` on a random port.
 - Cursor launcher using an app-scoped `--proxy-server` argument.
 - Domain-only connection diagnostics; TLS payloads remain encrypted.
-- One-click removal of settings, generated OpenCode files, and credentials.
+- One-click normal launch actions for OpenCode and Cursor.
+- The bundled uninstaller removes settings, generated OpenCode files,
+  credentials, and the private local signing identity.
 - No system proxy changes, root certificate installation, or HTTPS decryption in this milestone.
 
 ## Build
@@ -63,11 +69,18 @@ existing app signature for integrity, installs it in `/Applications`, and
 launches it. These checks are not a substitute for Apple notarization. It does
 not disable Gatekeeper globally, install a root certificate, or change the
 system proxy. For this unsigned test build, it removes quarantine only from the
-installed RelayDock copy and applies a local ad-hoc signature.
+installed RelayDock copy and signs it with a stable RelayDock-only identity stored
+in `~/Library/Keychains/RelayDockLocalSigning.keychain-db`. This
+identity is not added to system trust and the uninstaller removes it.
+
+The first upgrade from the older ad-hoc-signed 0.2.x build changes the app's
+designated requirement. macOS may therefore request access to existing RelayDock
+Keychain items once, or you may need to re-enter endpoint keys. Releases signed
+locally by the 0.3.0 installer reuse the same identity after that migration.
 
 ### Build or install from the DMG
 
-Create both a drag-to-install DMG and a flat macOS installer package:
+Create a drag-to-install DMG and the one-line installer archive:
 
 ```bash
 ./scripts/package-release.sh
@@ -76,7 +89,6 @@ Create both a drag-to-install DMG and a flat macOS installer package:
 Artifacts are written to `dist/`:
 
 - `RelayDock-<version>.dmg`
-- `RelayDock-<version>.pkg`
 - `RelayDock-mac-universal.zip`
 - `RelayDock-mac-universal.zip.sha256`
 - `SHA256SUMS`
@@ -86,10 +98,11 @@ The DMG contains:
 - `Install Guide.html` and `安装说明.html`, with matching English and Chinese
   step-by-step install and probe guides.
 - `Install RelayDock.command`, which copies the app to `/Applications`, removes
-  the quarantine attribute from that local copy, and applies an ad-hoc local
-  signature.
+  the quarantine attribute from that local copy, and applies a stable local
+  RelayDock-only signature.
 - `Uninstall RelayDock.command`, which removes the app, RelayDock preferences,
-  and the gateway API key stored in Keychain.
+  all endpoint API keys, generated configuration, and the private signing
+  keychain.
 
 For an unsigned personal build, open Terminal, type `/bin/zsh ` (including the
 trailing space), drag `Install RelayDock.command` from the mounted DMG into the
@@ -98,8 +111,10 @@ is required; executing the `.command` path itself can still be blocked by
 Gatekeeper. The drag step also avoids hard-coding a volume name that macOS may
 suffix when the DMG is mounted more than once.
 
-Local builds are ad-hoc app signed and the PKG is unsigned unless signing
-identities are supplied:
+Local builds are ad-hoc app signed. A PKG is emitted only when both Developer ID
+Application and Developer ID Installer identities are supplied; unsigned PKGs
+are intentionally not produced because their post-install re-signing would not
+preserve Keychain access across updates:
 
 ```bash
 RELAYDOCK_APP_SIGN_IDENTITY="Developer ID Application: Example" \
@@ -112,10 +127,13 @@ Developer ID certificates and notarization.
 
 ## OpenCode workflow
 
-1. Add one or more gateways in the RelayDock sidebar.
-2. Choose the protocol, Base URL, API key, and model IDs for each endpoint.
-3. Save each endpoint, then choose **Configure and launch OpenCode**.
-4. RelayDock launches OpenCode with its isolated generated configuration;
+1. Add one or more endpoints inside the single **Endpoints** configuration card.
+2. Choose the protocol, Base URL, and API key, then use **Sync Models** to test
+   the connection and fetch the endpoint's model catalog.
+3. Use **Verify All** to send a minimal request to every enabled model and see
+   its individual result. This can incur a very small amount of API usage.
+4. Save each endpoint, then choose **Configure and open OpenCode**.
+5. RelayDock launches OpenCode with its isolated generated configuration;
    global and project OpenCode configuration precedence is preserved.
 
 Quit OpenCode.app completely before launching it through RelayDock. OpenCode's
@@ -143,7 +161,10 @@ If a direct Anthropic connection is observed, the next milestone can add a narro
 - Non-target connections are tunneled byte-for-byte.
 - The probe stores no request bodies, headers, prompts, or responses.
 - Gateway keys are stored with `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`.
-- RelayDock currently installs no certificates or privileged helpers.
+- The unsigned installer creates a private, self-signed code-signing identity in
+  `~/Library/Keychains/RelayDockLocalSigning.keychain-db` so future local signatures remain stable. It is
+  not trusted as a root certificate, is not used for TLS, and is removed by the
+  uninstaller.
 
 ## License
 

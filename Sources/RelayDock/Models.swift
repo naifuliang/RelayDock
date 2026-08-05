@@ -115,6 +115,78 @@ enum VersionComparator {
     }
 }
 
+enum ModelCatalogParser {
+    static func modelIDs(from data: Data) -> [String] {
+        guard let object = try? JSONSerialization.jsonObject(with: data) else { return [] }
+        let items: [Any]
+        if let array = object as? [Any] {
+            items = array
+        } else if let dictionary = object as? [String: Any] {
+            items = (dictionary["data"] as? [Any])
+                ?? (dictionary["models"] as? [Any])
+                ?? (dictionary["deployments"] as? [Any])
+                ?? (dictionary["value"] as? [Any])
+                ?? []
+        } else {
+            items = []
+        }
+
+        var seen = Set<String>()
+        return items.compactMap { item in
+            let rawID: String?
+            if let value = item as? String {
+                rawID = value
+            } else if let dictionary = item as? [String: Any] {
+                guard isTextGenerationCandidate(dictionary) else { return nil }
+                rawID = dictionary["id"] as? String
+                    ?? dictionary["model"] as? String
+                    ?? dictionary["model_id"] as? String
+                    ?? dictionary["name"] as? String
+            } else {
+                rawID = nil
+            }
+            guard let id = rawID?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !id.isEmpty, isTextGenerationID(id), seen.insert(id).inserted else { return nil }
+            return id
+        }
+    }
+
+    static func nextCursor(from data: Data) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: data),
+              let dictionary = object as? [String: Any],
+              dictionary["has_more"] as? Bool == true,
+              let cursor = dictionary["last_id"] as? String,
+              !cursor.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return cursor
+    }
+
+    private static func isTextGenerationCandidate(_ item: [String: Any]) -> Bool {
+        if let capabilities = item["capabilities"] as? [String: Any] {
+            let chat = capabilities["chat_completion"] as? Bool
+            let completion = capabilities["completion"] as? Bool
+            if let chat { return chat }
+            if completion != nil { return false }
+        }
+        let type = (item["type"] as? String)?.lowercased() ?? ""
+        let rawID = (item["id"] as? String)
+            ?? (item["model"] as? String)
+            ?? (item["model_id"] as? String)
+            ?? (item["name"] as? String)
+            ?? ""
+        return isTextGenerationID("\(type) \(rawID)")
+    }
+
+    private static func isTextGenerationID(_ value: String) -> Bool {
+        let searchable = value.lowercased()
+        let nonTextMarkers = [
+            "embedding", "moderation", "whisper", "transcri", "tts",
+            "speech", "audio", "realtime", "dall-e", "image", "video",
+            "sora", "rerank"
+        ]
+        return !nonTextMarkers.contains { searchable.contains($0) }
+    }
+}
+
 struct ProxyEvent: Identifiable, Equatable {
     enum Kind: String {
         case connected

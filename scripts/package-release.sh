@@ -29,25 +29,31 @@ rm -f "$PKG_PATH" "$DMG_PATH" "$ZIP_PATH" "$ZIP_CHECKSUM_PATH" "$CHECKSUM_PATH"
 ditto --noextattr --norsrc "$APP_PATH" "$CLEAN_APP_PATH"
 codesign --verify --deep --strict "$CLEAN_APP_PATH"
 
-ditto -c -k --keepParent --norsrc "$CLEAN_APP_PATH" "$ZIP_PATH"
+ZIP_STAGING_DIR="$PACKAGE_DIR/zip"
+mkdir -p "$ZIP_STAGING_DIR"
+ditto --noextattr --norsrc "$CLEAN_APP_PATH" "$ZIP_STAGING_DIR/$APP_NAME.app"
+cp "$ROOT_DIR/scripts/local-sign-relaydock.sh" "$ZIP_STAGING_DIR/local-sign-relaydock.sh"
+chmod 755 "$ZIP_STAGING_DIR/local-sign-relaydock.sh"
+ditto -c -k --norsrc "$ZIP_STAGING_DIR" "$ZIP_PATH"
 
-PKG_ARGUMENTS=(
-    --component "$CLEAN_APP_PATH"
-    --install-location "/Applications"
-    --identifier "app.relaydock.mac"
-    --version "$VERSION"
-    --scripts "$ROOT_DIR/support/pkg-scripts"
-)
-
-if [[ -n "$INSTALLER_IDENTITY" ]]; then
-    PKG_ARGUMENTS+=(--sign "$INSTALLER_IDENTITY")
+CREATE_PKG=0
+if [[ -n "$INSTALLER_IDENTITY" ]] && \
+   codesign -dv --verbose=4 "$CLEAN_APP_PATH" 2>&1 | grep -q "Authority=Developer ID Application"; then
+    CREATE_PKG=1
+    pkgbuild \
+        --component "$CLEAN_APP_PATH" \
+        --install-location "/Applications" \
+        --identifier "app.relaydock.mac" \
+        --version "$VERSION" \
+        --scripts "$ROOT_DIR/support/pkg-scripts" \
+        --sign "$INSTALLER_IDENTITY" \
+        "$PKG_PATH"
 fi
-
-pkgbuild "${PKG_ARGUMENTS[@]}" "$PKG_PATH"
 
 ditto --noextattr --norsrc "$APP_PATH" "$STAGING_DIR/$APP_NAME.app"
 cp "$ROOT_DIR/scripts/install-relaydock.command" "$STAGING_DIR/Install RelayDock.command"
 cp "$ROOT_DIR/scripts/uninstall-relaydock.command" "$STAGING_DIR/Uninstall RelayDock.command"
+cp "$ROOT_DIR/scripts/local-sign-relaydock.sh" "$STAGING_DIR/local-sign-relaydock.sh"
 cp "$ROOT_DIR/support/INSTALL.html" "$STAGING_DIR/安装说明.html"
 cp "$ROOT_DIR/support/INSTALL_EN.html" "$STAGING_DIR/Install Guide.html"
 ln -s /Applications "$STAGING_DIR/Applications"
@@ -63,18 +69,22 @@ hdiutil create \
 
 cd "$DIST_DIR"
 shasum -a 256 "$(basename "$ZIP_PATH")" > "$ZIP_CHECKSUM_PATH"
-shasum -a 256 \
-    "$(basename "$DMG_PATH")" \
-    "$(basename "$PKG_PATH")" \
-    "$(basename "$ZIP_PATH")" > "$CHECKSUM_PATH"
+CHECKSUM_FILES=("$(basename "$DMG_PATH")" "$(basename "$ZIP_PATH")")
+if [[ "$CREATE_PKG" == "1" ]]; then
+    CHECKSUM_FILES+=("$(basename "$PKG_PATH")")
+fi
+shasum -a 256 "${CHECKSUM_FILES[@]}" > "$CHECKSUM_PATH"
 
 echo "Created release artifacts:"
 echo "  $DMG_PATH"
-echo "  $PKG_PATH"
+if [[ "$CREATE_PKG" == "1" ]]; then
+    echo "  $PKG_PATH"
+fi
 echo "  $ZIP_PATH"
 echo "  $ZIP_CHECKSUM_PATH"
 echo "  $CHECKSUM_PATH"
 
-if [[ "$INSTALLER_IDENTITY" == "" ]]; then
-    echo "Note: no Developer ID Installer identity was found/configured; the PKG is unsigned."
+if [[ "$CREATE_PKG" == "0" ]]; then
+    echo "Note: PKG creation was skipped. A PKG is emitted only when both the app"
+    echo "and installer use Developer ID identities; use the DMG or one-line installer."
 fi

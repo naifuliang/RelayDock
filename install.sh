@@ -51,7 +51,7 @@ echo "checks its SHA-256 checksum and existing app signature for integrity,"
 echo "then installs it in $INSTALL_DIR. These checks are not Apple notarization."
 echo "It does not disable Gatekeeper globally, install a certificate, or change the system proxy."
 echo "For this unsigned test build, it removes quarantine only from the installed"
-echo "RelayDock copy and applies a local ad-hoc signature."
+echo "RelayDock copy and applies a stable RelayDock-only local signature."
 echo ""
 read "REPLY?Continue? [y/N] " </dev/tty
 
@@ -78,6 +78,7 @@ fi
 
 /usr/bin/ditto -x -k "$ARCHIVE_PATH" "$WORK_DIR/unpacked"
 SOURCE_APP="$WORK_DIR/unpacked/$APP_NAME.app"
+SIGNING_HELPER="$WORK_DIR/unpacked/local-sign-relaydock.sh"
 if [[ ! -d "$SOURCE_APP" ]]; then
     echo "The downloaded archive does not contain $APP_NAME.app. Installation stopped."
     exit 1
@@ -90,8 +91,12 @@ if /usr/bin/codesign -dv --verbose=4 "$SOURCE_APP" 2>&1 | /usr/bin/grep -q "Auth
     echo "Developer ID signature detected; preserving the vendor signature."
     /usr/sbin/spctl --assess --type execute --verbose=2 "$STAGED_APP"
 else
+    if [[ ! -x "$SIGNING_HELPER" ]]; then
+        echo "The downloaded archive does not contain the signing helper. Installation stopped."
+        exit 1
+    fi
     /usr/bin/xattr -dr com.apple.quarantine "$STAGED_APP" 2>/dev/null || true
-    /usr/bin/codesign --force --deep --options runtime --sign - "$STAGED_APP"
+    "$SIGNING_HELPER" "$STAGED_APP"
 fi
 
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$STAGED_APP"

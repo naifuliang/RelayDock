@@ -10,69 +10,41 @@ struct ContentView: View {
     @State private var showCleanupConfirmation = false
     @State private var showDeleteConfirmation = false
     @State private var showUnsavedChanges = false
+    @State private var showModelTestConfirmation = false
     @State private var pendingNavigation: PendingNavigation?
 
     var body: some View {
-        NavigationSplitView {
-            VStack(alignment: .leading, spacing: 16) {
-                brand
-                HStack {
-                    Text("ENDPOINTS").font(.caption2.bold()).foregroundStyle(.secondary)
-                    Spacer()
-                    Button(action: attemptAddProfile) { Image(systemName: "plus") }
-                        .buttonStyle(.plain)
-                        .help("添加端点")
-                }
-                VStack(spacing: 5) {
-                    ForEach(model.profiles) { profile in
-                        Button {
-                            attemptSelectProfile(profile.id)
-                        } label: {
-                            HStack(spacing: 9) {
-                                Circle()
-                                    .fill(profile.isEnabled ? Color.green : Color.secondary.opacity(0.4))
-                                    .frame(width: 7, height: 7)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(profile.displayName).lineLimit(1)
-                                    Text(profile.provider.title).font(.caption2).foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(profile.id == model.selectedProfileID ? Color.accentColor.opacity(0.14) : .clear)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                Spacer()
-                Text("Many endpoints. Every coding tool.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(18)
-            .navigationSplitViewColumnWidth(min: 215, ideal: 235)
-        } detail: {
+        HStack(spacing: 0) {
+            sidebar
+            Divider()
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    gatewayCard
-                    openCodeCard
+                VStack(alignment: .leading, spacing: 18) {
+                    pageHeader
+                    endpointConfigurationCard
+                    launcherCard
                     updateCard
                     probeCard
                     diagnosticsCard
                     footer
                 }
-                .padding(26)
+                .padding(28)
+                .frame(maxWidth: 1120)
+                .frame(maxWidth: .infinity)
             }
+            .background(Color(nsColor: .windowBackgroundColor))
         }
+        .preferredColorScheme(.light)
         .alert("删除这个端点？", isPresented: $showDeleteConfirmation) {
             Button("取消", role: .cancel) {}
             Button("删除", role: .destructive) { model.deleteSelectedProfile() }
         } message: {
             Text("将删除该端点及其钥匙串 API Key，不会影响其他端点。")
+        }
+        .alert("测试全部模型？", isPresented: $showModelTestConfirmation) {
+            Button("取消", role: .cancel) {}
+            Button("开始测试") { model.testAllModels() }
+        } message: {
+            Text("RelayDock 会向每个已启用模型发送一次最小请求，可能产生极少量 API 用量。")
         }
         .alert("当前端点有未保存的更改", isPresented: $showUnsavedChanges) {
             Button("取消", role: .cancel) { pendingNavigation = nil }
@@ -89,214 +61,336 @@ struct ContentView: View {
         }
     }
 
-    private var brand: some View {
-        HStack(spacing: 11) {
-            Image(nsImage: NSApp.applicationIconImage)
-                .resizable()
-                .scaledToFit()
-                .frame(width: 40, height: 40)
-            VStack(alignment: .leading, spacing: 1) {
-                Text("RelayDock").font(.title2.bold())
-                Text("Endpoint launcher for macOS").font(.caption).foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private var gatewayCard: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack {
-                    Label("Gateway", systemImage: "point.3.connected.trianglepath.dotted")
-                        .font(.headline)
-                    Spacer()
-                    Toggle("启用", isOn: $model.draftProfile.isEnabled)
-                        .toggleStyle(.switch)
-                        .controlSize(.small)
-                }
-                LabeledContent("名称") {
-                    TextField("例如 OpenAI Production", text: $model.draftProfile.displayName)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: 420)
-                }
-                LabeledContent("协议") {
-                    Picker("", selection: $model.draftProfile.provider) {
-                        ForEach(ProviderKind.allCases) { provider in
-                            Text(provider.title).tag(provider)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(maxWidth: 420)
-                }
-                LabeledContent("Base URL") {
-                    TextField(endpointPlaceholder, text: $model.draftProfile.baseURL)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: 420)
-                }
-                if model.draftProfile.provider == .azureOpenAI {
-                    LabeledContent("API Version") {
-                        TextField("v1", text: $model.draftProfile.azureAPIVersion)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(maxWidth: 420)
-                    }
-                    Toggle("使用 Azure 旧版 deployment URL", isOn: $model.draftProfile.azureDeploymentBasedURLs)
-                }
-                LabeledContent("API Key") {
-                    SecureField("保存到 macOS Keychain", text: $model.apiKey)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: 420)
-                }
-
-                Divider()
-                HStack {
-                    Text("Models").font(.headline)
-                    Spacer()
-                    Button("添加模型", systemImage: "plus") { model.addModel() }
-                }
-                if model.draftProfile.models.isEmpty {
-                    Text("还没有模型。添加模型 ID 后，它们会分别出现在 OpenCode 的模型选择器中。")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .padding(.vertical, 8)
-                } else {
-                    VStack(spacing: 8) {
-                        ForEach($model.draftProfile.models) { $route in
-                            HStack {
-                                Toggle("", isOn: $route.isEnabled).labelsHidden().toggleStyle(.checkbox)
-                                TextField("模型 ID，例如 gpt-5", text: $route.modelID)
-                                    .textFieldStyle(.roundedBorder)
-                                TextField("显示名称（可选）", text: $route.displayName)
-                                    .textFieldStyle(.roundedBorder)
-                                Button(role: .destructive) { model.removeModel(route.id) } label: {
-                                    Image(systemName: "minus.circle")
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-                }
-
-                Divider()
-                HStack {
-                    Button("保存端点") { model.saveSelectedProfile() }
-                        .buttonStyle(.borderedProminent)
-                    Button("测试模型接口") { model.testEndpoint() }
-                        .disabled(model.isBusy)
-                    Spacer()
-                    Button("删除端点…", role: .destructive) { showDeleteConfirmation = true }
-                        .disabled(model.profiles.count <= 1)
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            HStack(spacing: 11) {
+                Image(nsImage: NSApp.applicationIconImage)
+                    .resizable().scaledToFit().frame(width: 38, height: 38)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("RelayDock").font(.headline)
+                    Text("Endpoint launcher").font(.caption).foregroundStyle(.secondary)
                 }
             }
-            .padding(8)
-        }
-    }
 
-    private var openCodeCard: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Label("OpenCode", systemImage: "terminal")
-                        .font(.headline)
-                    Spacer()
-                    Label(model.openCodeInstalled ? "已安装" : "未找到", systemImage: model.openCodeInstalled ? "checkmark.circle.fill" : "exclamationmark.circle")
-                        .foregroundStyle(model.openCodeInstalled ? .green : .orange)
-                }
-                Text("RelayDock 会生成独立的 OPENCODE_CONFIG，不覆盖你现有的全局配置。每个启用的 Gateway 会成为一个 provider，每个模型都可以单独选择。密钥写入权限为 600 的 RelayDock 私有文件，并由 OpenCode 的 {file:…} 读取。")
-                    .font(.callout)
+            VStack(alignment: .leading, spacing: 6) {
+                Label("配置", systemImage: "slider.horizontal.3")
+                    .fontWeight(.medium)
+                    .padding(.horizontal, 11).padding(.vertical, 9)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.black.opacity(0.06), in: RoundedRectangle(cornerRadius: 9))
+                Label("\(model.profiles.count) 个 Endpoint", systemImage: "point.3.connected.trianglepath.dotted")
                     .foregroundStyle(.secondary)
+                    .padding(.horizontal, 11).padding(.vertical, 8)
+            }
+
+            Spacer()
+
+            VStack(alignment: .leading, spacing: 8) {
+                Button { model.configureOpenCode(launch: true) } label: {
+                    Label("打开 OpenCode", systemImage: "terminal")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .disabled(!model.openCodeInstalled)
+                Button { model.openCursor() } label: {
+                    Label("打开 Cursor", systemImage: "cursorarrow")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .disabled(!model.cursorInstalled)
+            }
+            .buttonStyle(.borderless)
+
+            Text("v\(model.currentVersion)")
+                .font(.caption2).foregroundStyle(.tertiary)
+        }
+        .padding(20)
+        .frame(width: 218)
+        .background(Color.white)
+    }
+
+    private var pageHeader: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("配置").font(.largeTitle.bold())
+            Text("一个配置管理多个 Endpoint、密钥与模型。")
+                .font(.callout).foregroundStyle(.secondary)
+        }
+    }
+
+    private var endpointConfigurationCard: some View {
+        cleanCard {
+            VStack(alignment: .leading, spacing: 18) {
                 HStack {
-                    Button("生成配置") { model.configureOpenCode(launch: false) }
-                    Button("配置并启动 OpenCode") { model.configureOpenCode(launch: true) }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(!model.openCodeInstalled)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Endpoints").font(.title3.bold())
+                        Text("每个 Endpoint 使用独立协议、地址、Key 和模型列表。")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("添加 Endpoint", systemImage: "plus", action: attemptAddProfile)
+                        .buttonStyle(.bordered)
+                }
+
+                HStack(alignment: .top, spacing: 20) {
+                    VStack(spacing: 7) {
+                        ForEach(model.profiles) { profile in
+                            endpointRow(profile)
+                        }
+                    }
+                    .frame(width: 210)
+
+                    Divider()
+                    endpointEditor
                 }
             }
-            .padding(8)
         }
+    }
+
+    private func endpointRow(_ profile: GatewayProfile) -> some View {
+        Button { attemptSelectProfile(profile.id) } label: {
+            HStack(spacing: 10) {
+                Circle()
+                    .fill(profile.isEnabled ? Color.green : Color.gray.opacity(0.5))
+                    .frame(width: 7, height: 7)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(profile.displayName).fontWeight(.medium).lineLimit(1)
+                    Text("\(profile.provider.title) · \(profile.models.count) models")
+                        .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption2.bold()).foregroundStyle(.tertiary)
+            }
+            .padding(11)
+            .background(
+                profile.id == model.selectedProfileID ? Color.black.opacity(0.06) : Color.clear,
+                in: RoundedRectangle(cornerRadius: 10)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var endpointEditor: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text(model.draftProfile.displayName).font(.headline)
+                Spacer()
+                Toggle("启用", isOn: $model.draftProfile.isEnabled)
+                    .toggleStyle(.switch).controlSize(.small)
+            }
+            formRow("名称") {
+                TextField("例如 OpenAI Production", text: $model.draftProfile.displayName)
+            }
+            formRow("协议") {
+                Picker("", selection: $model.draftProfile.provider) {
+                    ForEach(ProviderKind.allCases) { Text($0.title).tag($0) }
+                }.labelsHidden()
+            }
+            formRow("Base URL") {
+                TextField(endpointPlaceholder, text: $model.draftProfile.baseURL)
+            }
+            if model.draftProfile.provider == .azureOpenAI {
+                formRow("API Version") {
+                    TextField("v1", text: $model.draftProfile.azureAPIVersion)
+                }
+                Toggle("使用 Azure 旧版 deployment URL", isOn: $model.draftProfile.azureDeploymentBasedURLs)
+                if model.draftProfile.azureDeploymentBasedURLs {
+                    Text("Azure 已停用旧版 deployment 列表接口；请手动添加 deployment ID，随后可一键验证。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            formRow("API Key") {
+                SecureField("安全保存到 macOS Keychain", text: $model.apiKey)
+            }
+
+            Divider().padding(.vertical, 2)
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Models").font(.headline)
+                    Text("测试连接后会自动同步；也可以手动添加。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("添加", systemImage: "plus") { model.addModel() }
+                    .buttonStyle(.borderless)
+            }
+
+            if model.draftProfile.models.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "square.stack.3d.up.slash").foregroundStyle(.secondary)
+                    Text("还没有模型").fontWeight(.medium)
+                    Text("点击“测试并获取模型”自动同步。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity).padding(.vertical, 20)
+                .background(Color.black.opacity(0.025), in: RoundedRectangle(cornerRadius: 10))
+            } else {
+                VStack(spacing: 0) {
+                    ForEach($model.draftProfile.models) { $route in
+                        modelRow($route)
+                        if route.id != model.draftProfile.models.last?.id { Divider() }
+                    }
+                }
+                .padding(.horizontal, 10)
+                .background(Color.black.opacity(0.025), in: RoundedRectangle(cornerRadius: 10))
+            }
+
+            HStack(spacing: 9) {
+                Button("保存") { model.saveSelectedProfile() }
+                    .buttonStyle(.borderedProminent)
+                Button("同步模型") { model.testEndpoint() }
+                    .disabled(model.isBusy || usesLegacyAzureDeployments)
+                    .help("测试 Endpoint 并自动获取模型")
+                Button("一键验证全部") { showModelTestConfirmation = true }
+                    .disabled(model.isBusy || model.draftProfile.models.isEmpty)
+                Spacer()
+                Menu {
+                    Button("删除 Endpoint…", role: .destructive) { showDeleteConfirmation = true }
+                        .disabled(model.profiles.count <= 1)
+                } label: {
+                    Image(systemName: "ellipsis")
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+            }
+        }
+        .textFieldStyle(.roundedBorder)
+        .frame(maxWidth: .infinity)
+    }
+
+    private func modelRow(_ route: Binding<GatewayModel>) -> some View {
+        HStack(spacing: 8) {
+            Toggle("", isOn: route.isEnabled).labelsHidden().toggleStyle(.checkbox)
+            TextField("模型 ID", text: route.modelID)
+            TextField("显示名称（可选）", text: route.displayName)
+            modelStateView(model.modelProbeStates[route.wrappedValue.id])
+            Button(role: .destructive) { model.removeModel(route.wrappedValue.id) } label: {
+                Image(systemName: "minus.circle")
+            }.buttonStyle(.plain)
+        }
+        .padding(.vertical, 8)
+    }
+
+    @ViewBuilder
+    private func modelStateView(_ state: ModelProbeState?) -> some View {
+        switch state {
+        case .testing:
+            ProgressView().controlSize(.small).help("正在测试")
+        case .available:
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).help("可用")
+        case let .failed(reason):
+            Image(systemName: "xmark.circle.fill").foregroundStyle(.red).help(reason)
+        case nil:
+            Image(systemName: "circle").foregroundStyle(.tertiary).help("尚未测试")
+        }
+    }
+
+    private var launcherCard: some View {
+        cleanCard {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Launchers").font(.title3.bold())
+                HStack(spacing: 12) {
+                    launcherTile(
+                        title: "OpenCode",
+                        detail: "写入独立配置并带上全部已启用 Endpoint 启动。",
+                        installed: model.openCodeInstalled,
+                        icon: "terminal",
+                        actionTitle: "配置并打开",
+                        action: { model.configureOpenCode(launch: true) }
+                    )
+                    launcherTile(
+                        title: "Cursor",
+                        detail: "一键打开 Cursor；普通启动不会注入第三方 Endpoint。",
+                        installed: model.cursorInstalled,
+                        icon: "cursorarrow",
+                        actionTitle: "打开 Cursor",
+                        action: model.openCursor
+                    )
+                }
+                Text("Cursor 的第三方端点能力取决于 Cursor 本身；RelayDock 不会虚假声明普通启动已完成端点替换。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func launcherTile(
+        title: String, detail: String, installed: Bool, icon: String,
+        actionTitle: String, action: @escaping () -> Void
+    ) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon).font(.title2).frame(width: 28)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack {
+                    Text(title).fontWeight(.semibold)
+                    Text(installed ? "已安装" : "未找到")
+                        .font(.caption2).foregroundStyle(installed ? .green : .orange)
+                }
+                Text(detail).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            Button(actionTitle, action: action).buttonStyle(.borderedProminent).disabled(!installed)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity)
+        .background(Color.black.opacity(0.025), in: RoundedRectangle(cornerRadius: 11))
     }
 
     private var updateCard: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Label("Updates", systemImage: "arrow.triangle.2.circlepath")
-                        .font(.headline)
-                    Text("v\(model.currentVersion)").foregroundStyle(.secondary)
-                    Spacer()
-                    Toggle("启动时自动检查", isOn: $model.automaticUpdateChecks)
-                        .toggleStyle(.switch)
-                        .controlSize(.small)
+        cleanCard {
+            HStack(spacing: 14) {
+                Image(systemName: "arrow.triangle.2.circlepath").font(.title2)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Updates · v\(model.currentVersion)").font(.headline)
+                    if let release = model.availableRelease {
+                        Text("RelayDock \(release.version) 可用，下载后会校验 SHA-256。")
+                            .font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        Text("从 GitHub Release 自动检查并下载更新。")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
-                if let release = model.availableRelease {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("RelayDock \(release.version) 可用").font(.headline)
-                            Text("安装包将从 GitHub Release 下载并校验 SHA-256。")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Button(model.isDownloadingUpdate ? "正在下载…" : "下载并打开 DMG") {
-                            model.downloadAvailableUpdate()
-                        }
-                        .buttonStyle(.borderedProminent)
+                Spacer()
+                Toggle("自动检查", isOn: $model.automaticUpdateChecks).toggleStyle(.switch).controlSize(.small)
+                if model.availableRelease != nil {
+                    Button(model.isDownloadingUpdate ? "下载中…" : "下载更新") { model.downloadAvailableUpdate() }
                         .disabled(model.isDownloadingUpdate)
-                    }
                 } else {
-                    HStack {
-                        Text("自动检查最多每天一次，也可以手动检查。")
-                            .font(.callout).foregroundStyle(.secondary)
-                        Spacer()
-                        Button(model.isCheckingForUpdates ? "正在检查…" : "检查更新") {
-                            Task { await model.checkForUpdates() }
-                        }
-                        .disabled(model.isCheckingForUpdates)
-                    }
+                    Button(model.isCheckingForUpdates ? "检查中…" : "检查更新") {
+                        Task { await model.checkForUpdates() }
+                    }.disabled(model.isCheckingForUpdates)
                 }
             }
-            .padding(8)
         }
     }
 
     private var probeCard: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 14) {
+        cleanCard {
+            VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Label("Cursor Network Probe", systemImage: "scope").font(.headline)
                     Spacer()
-                    Label(model.cursorInstalled ? "Cursor 已安装" : "未找到 Cursor", systemImage: model.cursorInstalled ? "checkmark.circle.fill" : "xmark.circle")
-                        .foregroundStyle(model.cursorInstalled ? .green : .red)
+                    Text(model.verdict.title).font(.callout).foregroundStyle(verdictColor)
                 }
-                HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: verdictIcon).font(.title2).foregroundStyle(verdictColor)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(model.verdict.title).font(.headline)
-                        Text(model.verdict.explanation).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                }
-                Divider()
+                Text(model.verdict.explanation).font(.callout).foregroundStyle(.secondary)
                 HStack {
                     if model.proxyRunning {
                         Label("127.0.0.1:\(model.proxyPort ?? 0)", systemImage: "dot.radiowaves.left.and.right")
                             .foregroundStyle(.green)
-                        Button("停止探测", role: .destructive) { model.stopProbe() }
+                        Button("停止", role: .destructive) { model.stopProbe() }
                     } else {
-                        Button("启动探测代理") { model.startProbe() }.buttonStyle(.borderedProminent)
+                        Button("启动探测代理") { model.startProbe() }
                     }
                     Spacer()
-                    Button("通过代理启动 Cursor") { model.launchCursor(restart: false) }
+                    Button("通过代理打开 Cursor") { model.launchCursor(restart: false) }
                         .disabled(!model.proxyRunning || model.isBusy)
-                    Button("重启 Cursor 并探测") { model.launchCursor(restart: true) }
+                    Button("重启并探测") { model.launchCursor(restart: true) }
                         .disabled(!model.proxyRunning || model.isBusy)
                 }
-                Text("Cursor 目前仍是网络能力探测：不会把上面的多个 Gateway 虚假声明为 Cursor 原生支持。")
-                    .font(.caption).foregroundStyle(.secondary)
             }
-            .padding(8)
         }
     }
 
     private var diagnosticsCard: some View {
-        GroupBox {
+        cleanCard {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("最近连接").font(.headline)
@@ -304,32 +398,23 @@ struct ContentView: View {
                     Button("清除") { model.clearDiagnostics() }.disabled(model.events.isEmpty)
                 }
                 if model.events.isEmpty {
-                    VStack(spacing: 8) {
-                        Image(systemName: "waveform.path.ecg").font(.title).foregroundStyle(.secondary)
-                        Text("暂无连接").font(.headline)
-                        Text("通过 RelayDock 启动 Cursor 后，连接目标会显示在这里。")
-                            .font(.callout).foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity).frame(height: 120)
+                    Text("暂无连接。通过 RelayDock 代理启动 Cursor 后，连接目标会显示在这里。")
+                        .font(.callout).foregroundStyle(.secondary).padding(.vertical, 12)
                 } else {
-                    LazyVStack(spacing: 0) {
-                        ForEach(model.events.prefix(30)) { event in
-                            HStack {
-                                Image(systemName: event.isAnthropic ? "checkmark.seal.fill" : "arrow.left.arrow.right")
-                                    .foregroundStyle(event.isAnthropic ? .green : .secondary)
-                                Text(event.host).font(.system(.body, design: .monospaced))
-                                Text(":\(event.port)").foregroundStyle(.secondary)
-                                Spacer()
-                                Text(event.kind.rawValue).font(.caption).foregroundStyle(.secondary)
-                                Text(event.timestamp, style: .time).font(.caption).foregroundStyle(.tertiary)
-                            }
-                            .padding(.vertical, 7)
-                            Divider()
+                    ForEach(model.events.prefix(30)) { event in
+                        HStack {
+                            Image(systemName: event.isAnthropic ? "checkmark.seal.fill" : "arrow.left.arrow.right")
+                                .foregroundStyle(event.isAnthropic ? .green : .secondary)
+                            Text(event.host).font(.system(.body, design: .monospaced))
+                            Text(":\(event.port)").foregroundStyle(.secondary)
+                            Spacer()
+                            Text(event.kind.rawValue).font(.caption).foregroundStyle(.secondary)
+                            Text(event.timestamp, style: .time).font(.caption).foregroundStyle(.tertiary)
                         }
+                        Divider()
                     }
                 }
             }
-            .padding(8)
         }
     }
 
@@ -338,8 +423,25 @@ struct ContentView: View {
             Text(model.statusMessage).foregroundStyle(.secondary)
             Spacer()
             Button("清除本地数据…", role: .destructive) { showCleanupConfirmation = true }
+        }.font(.callout)
+    }
+
+    private func cleanCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
+            .padding(20)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.black.opacity(0.075), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.035), radius: 10, y: 3)
+    }
+
+    private func formRow<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(label).font(.callout).foregroundStyle(.secondary).frame(width: 88, alignment: .leading)
+            content().frame(maxWidth: .infinity)
         }
-        .font(.callout)
     }
 
     private var endpointPlaceholder: String {
@@ -350,23 +452,23 @@ struct ContentView: View {
         }
     }
 
+    private var usesLegacyAzureDeployments: Bool {
+        model.draftProfile.provider == .azureOpenAI && model.draftProfile.azureDeploymentBasedURLs
+    }
+
     private func attemptSelectProfile(_ id: UUID) {
         guard id != model.selectedProfileID else { return }
         if model.hasUnsavedProfileChanges {
             pendingNavigation = .select(id)
             showUnsavedChanges = true
-        } else {
-            model.selectProfile(id)
-        }
+        } else { model.selectProfile(id) }
     }
 
     private func attemptAddProfile() {
         if model.hasUnsavedProfileChanges {
             pendingNavigation = .add
             showUnsavedChanges = true
-        } else {
-            model.addProfile()
-        }
+        } else { model.addProfile() }
     }
 
     private func performPendingNavigation(saveFirst: Bool) {
@@ -380,14 +482,6 @@ struct ContentView: View {
         case let .select(id): model.selectProfile(id)
         }
         self.pendingNavigation = nil
-    }
-
-    private var verdictIcon: String {
-        switch model.verdict {
-        case .waiting: return "hourglass"
-        case .directAnthropic: return "checkmark.shield.fill"
-        case .cursorBackendOnly: return "exclamationmark.triangle.fill"
-        }
     }
 
     private var verdictColor: Color {
@@ -409,13 +503,13 @@ struct MenuBarView: View {
             NSApp.activate(ignoringOtherApps: true)
         }
         Divider()
-        Text("端点：\(model.profiles.filter(\.isEnabled).count) 个已启用")
-        Button("启动 OpenCode") { model.configureOpenCode(launch: true) }
-            .disabled(!model.openCodeInstalled)
+        Text("Endpoint：\(model.profiles.filter(\.isEnabled).count) 个已启用")
+        Button("打开 OpenCode") { model.configureOpenCode(launch: true) }.disabled(!model.openCodeInstalled)
+        Button("打开 Cursor") { model.openCursor() }.disabled(!model.cursorInstalled)
         Divider()
         Text(model.proxyRunning ? "探测代理：127.0.0.1:\(model.proxyPort ?? 0)" : "探测代理：已停止")
         if model.proxyRunning {
-            Button("启动 Cursor") { model.launchCursor(restart: false) }
+            Button("通过代理打开 Cursor") { model.launchCursor(restart: false) }
             Button("停止探测") { model.stopProbe() }
         } else {
             Button("启动探测") { model.startProbe() }

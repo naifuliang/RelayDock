@@ -15,6 +15,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var availableRelease: GitHubRelease?
     @Published private(set) var isCheckingForUpdates = false
     @Published private(set) var isDownloadingUpdate = false
+    @Published private(set) var modelProbeStates: [UUID: ModelProbeState] = [:]
     @Published var automaticUpdateChecks: Bool {
         didSet { defaults.set(automaticUpdateChecks, forKey: Self.automaticUpdatesKey) }
     }
@@ -22,6 +23,9 @@ final class AppModel: ObservableObject {
     private let defaults = UserDefaults.standard
     private var proxy: ProbeProxy?
     private var activeProxyToken: UUID?
+    private var catalogTask: Task<Void, Never>?
+    private var modelTestTask: Task<Void, Never>?
+    private var endpointOperationToken: UUID?
     private var savedAPIKey: String
     private static let profilesKey = "gatewayProfiles.v2"
     private static let legacyProfileKey = "endpointProfile"
@@ -30,6 +34,33 @@ final class AppModel: ObservableObject {
     private static let lastUpdateCheckKey = "lastUpdateCheck"
 
     init() {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["RELAYDOCK_UI_PREVIEW"] == "1" {
+            let first = GatewayProfile(
+                displayName: "Sub2API OpenAI",
+                provider: .openAICompatible,
+                baseURL: "https://api.example.com/v1",
+                models: [
+                    GatewayModel(modelID: "gpt-5", displayName: "GPT-5"),
+                    GatewayModel(modelID: "gpt-4.1", displayName: "GPT-4.1")
+                ]
+            )
+            let second = GatewayProfile(
+                displayName: "Anthropic",
+                provider: .anthropic,
+                baseURL: "https://api.anthropic.com/v1",
+                models: [GatewayModel(modelID: "claude-sonnet", displayName: "Claude Sonnet")]
+            )
+            profiles = [first, second]
+            selectedProfileID = first.id
+            draftProfile = first
+            apiKey = ""
+            savedAPIKey = ""
+            automaticUpdateChecks = false
+            return
+        }
+        #endif
+
         let defaults = UserDefaults.standard
         let decodedProfiles = defaults.data(forKey: Self.profilesKey)
             .flatMap { try? JSONDecoder().decode([GatewayProfile].self, from: $0) }
@@ -97,6 +128,7 @@ final class AppModel: ObservableObject {
 
     func selectProfile(_ id: UUID) {
         guard let profile = profiles.first(where: { $0.id == id }) else { return }
+        cancelEndpointOperations()
         selectedProfileID = id
         draftProfile = profile
         apiKey = KeychainStore.loadAPIKey(for: id)
@@ -106,6 +138,7 @@ final class AppModel: ObservableObject {
     }
 
     func addProfile() {
+        cancelEndpointOperations()
         let profile = GatewayProfile(displayName: "Gateway \(profiles.count + 1)")
         profiles.append(profile)
         persistProfiles()
@@ -114,6 +147,7 @@ final class AppModel: ObservableObject {
     }
 
     func deleteSelectedProfile() {
+        cancelEndpointOperations()
         guard profiles.count > 1,
               let index = profiles.firstIndex(where: { $0.id == selectedProfileID }) else {
             statusMessage = "至少需要保留一个端点"
@@ -178,40 +212,133 @@ final class AppModel: ObservableObject {
     }
 
     func testEndpoint() {
-        guard let base = EndpointValidator.normalizedURL(from: draftProfile.baseURL) else {
-            statusMessage = "请先填写有效的 HTTPS 端点"
+        guard saveSelectedProfile() else { return }
+        guard !(draftProfile.provider == .azureOpenAI && draftProfile.azureDeploymentBasedURLs) else {
+            statusMessage = "Azure 旧版 deployment 模式请手动添加 deployment ID"
             return
         }
         let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         let profile = draftProfile
+        cancelEndpointOperations()
+        let operationToken = UUID()
+        endpointOperationToken = operationToken
         isBusy = true
         statusMessage = "正在测试模型接口…"
 
-        Task {
-            defer { isBusy = false }
-            do {
-                let url = Self.modelsURL(base: base)
-                var request = URLRequest(url: url)
-                request.timeoutInterval = 15
-                if !key.isEmpty {
-                    switch profile.provider {
-                    case .azureOpenAI:
-                        request.setValue(key, forHTTPHeaderField: "api-key")
-                    case .anthropic:
-                        request.setValue(key, forHTTPHeaderField: "x-api-key")
-                        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-                    case .openAICompatible, .openAIResponses:
-                        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
-                    }
+        catalogTask?.cancel()
+        catalogTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                if endpointOperationToken == operationToken {
+                    isBusy = false
+                    catalogTask = nil
+                    endpointOperationToken = nil
                 }
-                let (_, response) = try await URLSession.shared.data(for: request)
-                guard let http = response as? HTTPURLResponse else { throw EndpointError.invalidResponse }
-                statusMessage = (200..<300).contains(http.statusCode)
-                    ? "端点连接成功（HTTP \(http.statusCode)）"
-                    : "端点返回 HTTP \(http.statusCode)"
-            } catch {
-                statusMessage = "连接失败：\(error.localizedDescription)"
             }
+            do {
+                var discoveredModelIDs: [String] = []
+                var afterID: String?
+                var pageCount = 0
+                repeat {
+                    let request = try ModelAPIRequestFactory.catalog(profile: profile, apiKey: key, afterID: afterID)
+                    let (data, response) = try await URLSession.shared.data(for: request)
+                    try Task.checkCancellation()
+                    guard endpointOperationToken == operationToken else { return }
+                    guard let http = response as? HTTPURLResponse else { throw EndpointError.invalidResponse }
+                    guard (200..<300).contains(http.statusCode) else {
+                        statusMessage = "端点返回 HTTP \(http.statusCode)"
+                        return
+                    }
+                    discoveredModelIDs.append(contentsOf: ModelCatalogParser.modelIDs(from: data))
+                    afterID = profile.provider == .anthropic ? ModelCatalogParser.nextCursor(from: data) : nil
+                    pageCount += 1
+                } while afterID != nil && pageCount < 20
+                var seenModelIDs = Set<String>()
+                discoveredModelIDs = discoveredModelIDs.filter { seenModelIDs.insert($0).inserted }
+                if discoveredModelIDs.isEmpty {
+                    statusMessage = "连接成功，但没有识别到文本生成模型"
+                } else {
+                    guard selectedProfileID == profile.id else { return }
+                    applyDiscoveredModels(discoveredModelIDs)
+                    statusMessage = "连接成功，已获取 \(discoveredModelIDs.count) 个文本生成模型"
+                }
+            } catch {
+                guard endpointOperationToken == operationToken else { return }
+                if Task.isCancelled || (error as? URLError)?.code == .cancelled {
+                    statusMessage = "模型同步已取消"
+                } else {
+                    statusMessage = "连接失败：\(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    func testAllModels() {
+        guard saveSelectedProfile() else { return }
+        let routes = draftProfile.models.filter { $0.isEnabled && !$0.modelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        guard !routes.isEmpty else {
+            statusMessage = "请先获取或添加至少一个已启用模型"
+            return
+        }
+        let profile = draftProfile
+        let key = apiKey
+        cancelEndpointOperations()
+        let operationToken = UUID()
+        endpointOperationToken = operationToken
+        modelProbeStates = Dictionary(uniqueKeysWithValues: routes.map { ($0.id, .testing) })
+        isBusy = true
+        statusMessage = "正在逐个测试 \(routes.count) 个模型…"
+
+        modelTestTask?.cancel()
+        modelTestTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                if endpointOperationToken == operationToken {
+                    isBusy = false
+                    modelTestTask = nil
+                    endpointOperationToken = nil
+                }
+            }
+            var availableCount = 0
+            for route in routes {
+                guard !Task.isCancelled else {
+                    if endpointOperationToken == operationToken { statusMessage = "模型验证已取消" }
+                    return
+                }
+                do {
+                    let modelID = route.modelID.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let request = try ModelAPIRequestFactory.probe(
+                        profile: profile,
+                        modelID: modelID,
+                        apiKey: key
+                    )
+                    var (responseData, response) = try await URLSession.shared.data(for: request)
+                    if let http = response as? HTTPURLResponse,
+                       Self.shouldRetryLegacyTokenParameter(data: responseData, statusCode: http.statusCode),
+                       let fallback = try ModelAPIRequestFactory.legacyTokenFallback(
+                           profile: profile, modelID: modelID, apiKey: key
+                       ) {
+                        (responseData, response) = try await URLSession.shared.data(for: fallback)
+                    }
+                    try Task.checkCancellation()
+                    guard endpointOperationToken == operationToken else { return }
+                    guard let http = response as? HTTPURLResponse else { throw EndpointError.invalidResponse }
+                    if (200..<300).contains(http.statusCode) {
+                        modelProbeStates[route.id] = .available
+                        availableCount += 1
+                    } else {
+                        modelProbeStates[route.id] = .failed("HTTP \(http.statusCode)")
+                    }
+                } catch {
+                    guard endpointOperationToken == operationToken else { return }
+                    if Task.isCancelled || (error as? URLError)?.code == .cancelled {
+                        statusMessage = "模型验证已取消"
+                        return
+                    }
+                    modelProbeStates[route.id] = .failed(error.localizedDescription)
+                }
+            }
+            statusMessage = "模型测试完成：\(availableCount)/\(routes.count) 可用"
         }
     }
 
@@ -339,6 +466,15 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func openCursor() {
+        do {
+            try CursorLauncher.openNormally()
+            statusMessage = "Cursor 已打开；第三方端点仍需通过 Cursor 支持的方式配置"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
     func clearDiagnostics() {
         events.removeAll()
         statusMessage = "诊断记录已清除"
@@ -346,6 +482,7 @@ final class AppModel: ObservableObject {
 
     func removeLocalData() {
         do {
+            cancelEndpointOperations()
             stopProbe()
             defaults.removeObject(forKey: Self.profilesKey)
             defaults.removeObject(forKey: Self.legacyProfileKey)
@@ -373,10 +510,37 @@ final class AppModel: ObservableObject {
         return defaults.data(forKey: Self.profilesKey) == data
     }
 
-    private static func modelsURL(base: URL) -> URL {
-        let trimmedPath = base.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        if trimmedPath.hasSuffix("v1") { return base.appendingPathComponent("models") }
-        return base.appendingPathComponent("v1/models")
+    private func applyDiscoveredModels(_ modelIDs: [String]) {
+        let existing = Dictionary(uniqueKeysWithValues: draftProfile.models.map { ($0.modelID, $0) })
+        draftProfile.models = modelIDs.map { modelID in
+            if let saved = existing[modelID] { return saved }
+            return GatewayModel(modelID: modelID, displayName: modelID)
+        }
+        if let index = profiles.firstIndex(where: { $0.id == selectedProfileID }) {
+            profiles[index] = draftProfile
+            _ = persistProfiles()
+        }
+        modelProbeStates.removeAll()
+    }
+
+    private func cancelEndpointOperations() {
+        let hadOperation = endpointOperationToken != nil
+        endpointOperationToken = nil
+        catalogTask?.cancel()
+        catalogTask = nil
+        modelTestTask?.cancel()
+        modelTestTask = nil
+        if hadOperation { isBusy = false }
+    }
+
+    private static func shouldRetryLegacyTokenParameter(data: Data, statusCode: Int) -> Bool {
+        guard statusCode == 400 || statusCode == 422,
+              let message = String(data: data, encoding: .utf8)?.lowercased(),
+              message.contains("max_completion_tokens") else { return false }
+        return message.contains("unsupported")
+            || message.contains("unknown")
+            || message.contains("unrecognized")
+            || message.contains("not permitted")
     }
 }
 

@@ -18,7 +18,7 @@
 </head>
 <body>
   <h1>安装 RelayDock</h1>
-  <p class="subtle">RelayDock 0.2.0 · 多端点与 OpenCode 集成</p>
+  <p class="subtle">RelayDock 0.3.0 · 多端点、模型发现与快捷启动</p>
 
   <div class="card">
     <strong>最简单：复制一条命令</strong>
@@ -27,7 +27,8 @@
     <p>输入 <code>y</code> 确认，再按提示输入 Mac 登录密码。脚本会从 GitHub 下载最新版本，使用发布的 SHA-256 与现有 App 签名检查文件完整性，然后安装并启动 RelayDock。这些检查不等同于 Apple 公证。</p>
   </div>
 
-  <p class="note"><strong>安全范围：</strong>安装器不会全局关闭 Gatekeeper、安装根证书或修改系统代理。对于当前未公证测试版，它只会移除 RelayDock 安装副本的 quarantine 属性并执行本地 ad-hoc 签名。脚本源码可在 RelayDock 的公开 GitHub 仓库中审阅。</p>
+  <p class="note"><strong>安全范围：</strong>安装器不会全局关闭 Gatekeeper、安装根证书或修改系统代理。对于当前未公证测试版，它只会移除 RelayDock 安装副本的 quarantine 属性，并在 <code>~/Library/Keychains/RelayDockLocalSigning.keychain-db</code> 创建一个稳定、仅供 RelayDock 使用的本地签名身份。该身份不会加入系统信任，卸载时会一并删除。</p>
+  <p><strong>从 0.2.x 升级：</strong>旧版使用每次变化的 ad-hoc 签名，因此 macOS 可能最后一次请求读取已有 RelayDock Keychain 项的权限，也可能需要重新填写 Endpoint Key。只有在你明确启动了由本脚本安装的 <code>/Applications/RelayDock.app</code> 时才批准；0.3.0 之后的本地更新会复用稳定签名身份。</p>
 
   <div class="card">
     <strong>离线备用：从当前磁盘映像安装</strong>
@@ -40,16 +41,18 @@
     </ol>
   </div>
 
-  <p><strong>离线安装注意：</strong>不要直接双击脚本，也不要只把脚本拖到终端后运行。命令最前面必须有 <code>/bin/zsh</code>。完整命令看起来类似：<br><code>/bin/zsh "/Volumes/RelayDock 0.2.0/Install RelayDock.command"</code></p>
+  <p><strong>离线安装注意：</strong>不要直接双击脚本，也不要只把脚本拖到终端后运行。命令最前面必须有 <code>/bin/zsh</code>。完整命令看起来类似：<br><code>/bin/zsh "/Volumes/RelayDock 0.3.0/Install RelayDock.command"</code></p>
 
   <h2>为什么不能直接双击？</h2>
-  <p>当前个人测试包还没有 Apple Developer ID 与公证票据。直接双击会触发“无法验证是否包含恶意软件”的 Gatekeeper 提示。安装脚本会在本机执行 ad-hoc 签名，用户无需手动运行 <code>codesign</code>。上面的拖拽方式也不依赖固定卷名，因此即使系统把磁盘映像命名为 <code>RelayDock 0.2.0 2</code> 也能正确运行。</p>
+  <p>当前个人测试包还没有 Apple Developer ID 与公证票据。直接双击会触发“无法验证是否包含恶意软件”的 Gatekeeper 提示。安装脚本会完成本地签名，用户无需手动运行 <code>codesign</code>。上面的拖拽方式不依赖固定卷名，即使系统给磁盘映像添加数字后缀也能正确运行。</p>
   <p>也可以在弹窗中点击“完成”，然后前往“系统设置 → 隐私与安全性 → 安全性”选择“仍要打开”。不要全局关闭 Gatekeeper，也不要使用 <code>spctl --master-disable</code>。</p>
 
   <h2>配置多个端点与 OpenCode</h2>
   <ol>
-    <li>在左侧点击“+”添加 OpenAI Compatible、OpenAI Responses、Azure OpenAI 或 Anthropic 端点。</li>
-    <li>为每个端点添加一个或多个模型 ID，并分别保存 API Key。</li>
+    <li>在同一张 Endpoints 配置卡里点击“添加 Endpoint”，添加 OpenAI Compatible、OpenAI Responses、Azure OpenAI 或 Anthropic 端点。</li>
+    <li>填写 URL 和 Key 后点击“同步模型”，RelayDock 会测试连接并自动获取模型列表。</li>
+    <li>点击“一键验证全部”，RelayDock 会向每个已启用模型发送最小请求并分别显示成功或失败；这可能产生极少量 API 用量。</li>
+    <li>Azure 已停用旧版 deployment 列表接口，因此旧 deployment URL 模式需要手动添加 deployment ID 后再“一键验证”；现代 Azure v1 端点仍可同步模型。</li>
     <li>先完全退出已经运行的 OpenCode.app，再点击“配置并启动 OpenCode”。RelayDock 使用独立的 <code>OPENCODE_CONFIG</code>，不会覆盖已有全局配置。</li>
     <li>应用每天自动检查一次 GitHub Release，也可以在 Updates 卡片中手动检查并下载 DMG。</li>
   </ol>
@@ -62,9 +65,9 @@
     <li>回到 RelayDock 查看是否出现 <code>api.anthropic.com</code>。</li>
   </ol>
 
-  <p class="note"><strong>范围说明：</strong>0.2.0 已直接支持 OpenCode 多端点；Cursor 部分仍只观察 CONNECT 目标域名，不解密 HTTPS，也不会把 Anthropic 请求重定向到 Sub2API。界面会明确区分这两项能力。</p>
+  <p class="note"><strong>范围说明：</strong>0.3.0 已直接支持 OpenCode 多端点，并可一键普通启动 OpenCode 与 Cursor；Cursor 的端点能力仍只做 CONNECT 目标探测，不解密 HTTPS，也不会把 Anthropic 请求重定向到 Sub2API。界面会明确区分这些能力。</p>
 
   <h2>卸载</h2>
-  <p>使用 <code>/bin/zsh</code> 运行 <code>Uninstall RelayDock.command</code>。它会删除 App、全部端点与 Keychain API Key，以及 RelayDock 生成的 OpenCode 配置。此版本不会安装根证书或修改系统代理。</p>
+  <p>使用 <code>/bin/zsh</code> 运行 <code>Uninstall RelayDock.command</code>。它会删除 App、全部端点与 Keychain API Key、RelayDock 生成的 OpenCode 配置，以及私有本地签名 Keychain。此版本不会安装根证书或修改系统代理。</p>
 </body>
 </html>
