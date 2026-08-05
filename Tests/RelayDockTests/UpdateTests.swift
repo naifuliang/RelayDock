@@ -3,11 +3,46 @@ import XCTest
 @testable import RelayDock
 
 final class UpdateTests: XCTestCase {
+    func testLiveUpdateCheckWhenRequested() async throws {
+        guard ProcessInfo.processInfo.environment["RELAYDOCK_LIVE_UPDATE_TEST"] == "1" else {
+            throw XCTSkip("Set RELAYDOCK_LIVE_UPDATE_TEST=1 to call the live GitHub release endpoints")
+        }
+        let release = try await GitHubUpdater.fetchLatestRelease()
+        XCTAssertFalse(release.version.isEmpty)
+        XCTAssertNotNil(release.assets.first?.digest)
+    }
+
     func testSemanticVersionComparison() {
         XCTAssertTrue(VersionComparator.isNewer("0.2.0", than: "0.1.9"))
         XCTAssertTrue(VersionComparator.isNewer("v1.0.1", than: "1.0.0"))
         XCTAssertFalse(VersionComparator.isNewer("1.0.0", than: "1.0.0"))
         XCTAssertFalse(VersionComparator.isNewer("0.9.9", than: "1.0.0"))
+    }
+
+    func testAutomaticCheckSkipsOnlyRecentUpToDateResultForSameAppVersion() {
+        let now = Date(timeIntervalSince1970: 10_000_000)
+        let recent = now.addingTimeInterval(-60)
+        XCTAssertTrue(GitHubUpdater.shouldSkipAutomaticCheck(
+            lastCheck: recent,
+            lastOutcome: "upToDate",
+            lastCheckedAppVersion: "0.3.1",
+            currentVersion: "0.3.1",
+            now: now
+        ))
+        XCTAssertFalse(GitHubUpdater.shouldSkipAutomaticCheck(
+            lastCheck: recent,
+            lastOutcome: "available",
+            lastCheckedAppVersion: "0.3.1",
+            currentVersion: "0.3.1",
+            now: now
+        ))
+        XCTAssertFalse(GitHubUpdater.shouldSkipAutomaticCheck(
+            lastCheck: recent,
+            lastOutcome: "upToDate",
+            lastCheckedAppVersion: "0.3.0",
+            currentVersion: "0.3.1",
+            now: now
+        ))
     }
 
     func testDecodesGitHubReleaseAssetsAndDigest() throws {
@@ -28,6 +63,19 @@ final class UpdateTests: XCTestCase {
         XCTAssertEqual(release.version, "0.2.0")
         XCTAssertEqual(release.assets.first?.name, "RelayDock-0.2.0.dmg")
         XCTAssertEqual(release.assets.first?.digest, "sha256:abc123")
+    }
+
+    func testBuildsReleaseFromPublishedChecksumsWithoutGitHubAPI() throws {
+        let digest = String(repeating: "a", count: 64)
+        let data = "\(digest)  RelayDock-0.3.1.dmg\nignored  RelayDock-mac-universal.zip\n".data(using: .utf8)!
+        let release = try GitHubUpdater.releaseFromChecksums(data)
+
+        XCTAssertEqual(release.version, "0.3.1")
+        XCTAssertEqual(release.assets.first?.digest, "sha256:\(digest)")
+        XCTAssertEqual(
+            release.assets.first?.browserDownloadURL.absoluteString,
+            "https://github.com/naifuliang/RelayDock/releases/download/v0.3.1/RelayDock-0.3.1.dmg"
+        )
     }
 
     func testDownloadFailsClosedWhenDigestIsMissing() async {

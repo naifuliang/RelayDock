@@ -93,6 +93,14 @@ struct GitHubRelease: Decodable, Equatable {
     var version: String { tagName.trimmingCharacters(in: CharacterSet(charactersIn: "vV")) }
 }
 
+enum UpdateCheckResult: Equatable {
+    case idle
+    case checking
+    case upToDate(Date)
+    case updateAvailable(version: String, checkedAt: Date)
+    case failed(message: String, checkedAt: Date)
+}
+
 enum VersionComparator {
     static func isNewer(_ candidate: String, than current: String) -> Bool {
         let lhs = components(candidate)

@@ -63,6 +63,13 @@ else
     /usr/bin/security unlock-keychain -p "$PASSWORD" "$KEYCHAIN_PATH"
 fi
 
+# Keep the dedicated keychain discoverable so later processes can validate the
+# embedded self-signed certificate. This does not add certificate trust.
+USER_KEYCHAINS=("${(@f)$(/usr/bin/security list-keychains -d user | /usr/bin/sed -e 's/^[[:space:]]*"//' -e 's/"$//')}")
+if (( ${USER_KEYCHAINS[(Ie)$KEYCHAIN_PATH]} == 0 )); then
+    /usr/bin/security list-keychains -d user -s "${USER_KEYCHAINS[@]}" "$KEYCHAIN_PATH"
+fi
+
 /usr/bin/codesign --force --deep --options runtime \
     --keychain "$KEYCHAIN_PATH" --sign "$IDENTITY" "$APP_PATH"
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"

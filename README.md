@@ -8,7 +8,7 @@ The icon is hand-drawn from deterministic vector geometry. Edit
 `Assets/AppIcon.svg` or the matching dimensions in `scripts/render-icon.swift`;
 `scripts/build-icon.sh` renders the PNG and ICNS assets.
 
-Version 0.3.0 presents one clean configuration workspace containing multiple endpoints, automatically discovers each endpoint's models, verifies every enabled model with a minimal request, and adds direct OpenCode and Cursor launch actions. Cursor remains an explicit **Probe MVP**: RelayDock observes whether Anthropic BYOK traffic connects directly from the Mac, but does not yet redirect or decrypt Cursor traffic.
+Version 0.3.1 adds a verified in-app upgrade flow and visible update-check results. It retains the 0.3 multi-endpoint workspace, automatic model discovery, per-model verification, and direct OpenCode/Cursor launch actions. Cursor remains an explicit **Probe MVP**: RelayDock observes whether Anthropic BYOK traffic connects directly from the Mac, but does not yet redirect or decrypt Cursor traffic.
 
 ## Current features
 
@@ -23,6 +23,11 @@ Version 0.3.0 presents one clean configuration workspace containing multiple end
   referenced through OpenCode's `{file:...}` substitution.
 - Automatic daily GitHub Release checks and direct DMG download with the
   GitHub-published SHA-256 digest verified when available.
+- Visible update results for checking, latest-version, available-version, and
+  failure states, including the last check time.
+- Verified upgrade handoff: mount the downloaded DMG, verify its version and
+  app signature, run the bundled installer, confirm the installed version, and
+  restart RelayDock.
 - Native SwiftUI window and menu bar utility.
 - Provider-aware endpoint health checks and model catalog requests.
 - Catalog synchronization keeps text-generation candidates for coding tools;
@@ -70,13 +75,16 @@ launches it. These checks are not a substitute for Apple notarization. It does
 not disable Gatekeeper globally, install a root certificate, or change the
 system proxy. For this unsigned test build, it removes quarantine only from the
 installed RelayDock copy and signs it with a stable RelayDock-only identity stored
-in `~/Library/Keychains/RelayDockLocalSigning.keychain-db`. This
-identity is not added to system trust and the uninstaller removes it.
+in `~/Library/Keychains/RelayDockLocalSigning.keychain-db`. This keychain is
+added only to the user's Keychain search list so macOS can resolve the signing
+certificate; no certificate trust is added. The uninstaller removes the
+keychain and its search-list entry.
 
-The first upgrade from the older ad-hoc-signed 0.2.x build changes the app's
-designated requirement. macOS may therefore request access to existing RelayDock
-Keychain items once, or you may need to re-enter endpoint keys. Releases signed
-locally by the 0.3.0 installer reuse the same identity after that migration.
+The first upgrade from an older ad-hoc-signed build changes the app's designated
+requirement. RelayDock deliberately refuses interactive Keychain authorization
+prompts, so an inaccessible older endpoint key is shown as empty and must be
+entered again. Releases installed with the stable local identity preserve access
+after that migration without password prompts.
 
 ### Build or install from the DMG
 

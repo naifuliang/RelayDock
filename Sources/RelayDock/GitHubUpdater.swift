@@ -3,6 +3,7 @@ import Foundation
 
 enum GitHubUpdater {
     static let releasesAPI = URL(string: "https://api.github.com/repos/naifuliang/RelayDock/releases/latest")!
+    static let latestChecksumsURL = URL(string: "https://github.com/naifuliang/RelayDock/releases/latest/download/SHA256SUMS")!
 
     static func fetchLatestRelease(session: URLSession = .shared) async throws -> GitHubRelease {
         var request = URLRequest(url: releasesAPI)
@@ -10,11 +11,55 @@ enum GitHubUpdater {
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("RelayDock-macOS", forHTTPHeaderField: "User-Agent")
         request.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw UpdateError.invalidResponse
+        do {
+            let (data, response) = try await session.data(for: request)
+            if let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
+                return try JSONDecoder().decode(GitHubRelease.self, from: data)
+            }
+        } catch {
+            // The checksum asset below is served by GitHub Releases and does not
+            // consume the unauthenticated REST API quota.
         }
-        return try JSONDecoder().decode(GitHubRelease.self, from: data)
+        return try await fetchLatestReleaseFromChecksums(session: session)
+    }
+
+    static func releaseFromChecksums(_ data: Data) throws -> GitHubRelease {
+        guard let body = String(data: data, encoding: .utf8) else { throw UpdateError.invalidResponse }
+        for line in body.split(whereSeparator: \Character.isNewline) {
+            let fields = line.split(whereSeparator: \Character.isWhitespace)
+            guard fields.count >= 2 else { continue }
+            let digest = String(fields[0]).lowercased()
+            let fileName = String(fields[fields.count - 1])
+            guard fileName.hasPrefix("RelayDock-"), fileName.hasSuffix(".dmg"),
+                  digest.count == 64, digest.allSatisfy(\.isHexDigit) else { continue }
+            let version = String(fileName.dropFirst("RelayDock-".count).dropLast(".dmg".count))
+            guard UpdateInstaller.isSafeVersion(version),
+                  let htmlURL = URL(string: "https://github.com/naifuliang/RelayDock/releases/tag/v\(version)"),
+                  let downloadURL = URL(string: "https://github.com/naifuliang/RelayDock/releases/download/v\(version)/\(fileName)") else {
+                throw UpdateError.invalidResponse
+            }
+            return GitHubRelease(
+                tagName: "v\(version)",
+                htmlURL: htmlURL,
+                draft: false,
+                prerelease: false,
+                assets: [.init(name: fileName, browserDownloadURL: downloadURL, digest: "sha256:\(digest)")]
+            )
+        }
+        throw UpdateError.invalidResponse
+    }
+
+    static func shouldSkipAutomaticCheck(
+        lastCheck: Date?,
+        lastOutcome: String?,
+        lastCheckedAppVersion: String?,
+        currentVersion: String,
+        now: Date = Date()
+    ) -> Bool {
+        guard let lastCheck,
+              lastOutcome == "upToDate",
+              lastCheckedAppVersion == currentVersion else { return false }
+        return now.timeIntervalSince(lastCheck) < 24 * 60 * 60
     }
 
     static func downloadDMG(
@@ -67,6 +112,17 @@ enum GitHubUpdater {
             if !fileManager.fileExists(atPath: candidate.path) { return candidate }
         }
         return directory.appendingPathComponent("\(base)-\(UUID().uuidString).\(pathExtension)")
+    }
+
+    private static func fetchLatestReleaseFromChecksums(session: URLSession) async throws -> GitHubRelease {
+        var request = URLRequest(url: latestChecksumsURL)
+        request.timeoutInterval = 20
+        request.setValue("RelayDock-macOS", forHTTPHeaderField: "User-Agent")
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw UpdateError.invalidResponse
+        }
+        return try releaseFromChecksums(data)
     }
 }
 

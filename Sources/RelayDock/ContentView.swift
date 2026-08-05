@@ -341,24 +341,56 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Updates · v\(model.currentVersion)").font(.headline)
                     if let release = model.availableRelease {
-                        Text("RelayDock \(release.version) 可用，下载后会校验 SHA-256。")
+                        Text("RelayDock \(release.version) 可用；安装前会校验 SHA-256、版本和 App 签名。")
                             .font(.caption).foregroundStyle(.secondary)
+                        updateResultRow
                     } else {
-                        Text("从 GitHub Release 自动检查并下载更新。")
-                            .font(.caption).foregroundStyle(.secondary)
+                        updateResultRow
                     }
                 }
                 Spacer()
                 Toggle("自动检查", isOn: $model.automaticUpdateChecks).toggleStyle(.switch).controlSize(.small)
                 if model.availableRelease != nil {
-                    Button(model.isDownloadingUpdate ? "下载中…" : "下载更新") { model.downloadAvailableUpdate() }
-                        .disabled(model.isDownloadingUpdate)
+                    if model.updateInstallerWasOpened {
+                        VStack(alignment: .trailing, spacing: 4) {
+                            Button("安装器已打开") {}.disabled(true)
+                            Button("安装已取消？重新尝试") { model.resetUpdateInstallerHandoff() }
+                                .buttonStyle(.link).font(.caption)
+                        }
+                    } else {
+                        Button(model.isDownloadingUpdate ? "准备安装…" : "下载并安装…") { model.installAvailableUpdate() }
+                            .disabled(model.isDownloadingUpdate)
+                    }
                 } else {
                     Button(model.isCheckingForUpdates ? "检查中…" : "检查更新") {
                         Task { await model.checkForUpdates() }
                     }.disabled(model.isCheckingForUpdates)
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var updateResultRow: some View {
+        switch model.updateCheckResult {
+        case .idle:
+            Label("尚未检查更新", systemImage: "minus.circle")
+                .font(.caption).foregroundStyle(.secondary)
+        case .checking:
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text("正在检查 GitHub Release…")
+            }
+            .font(.caption).foregroundStyle(.secondary)
+        case let .upToDate(date):
+            Label("已是最新版本 · \(date.formatted(date: .omitted, time: .shortened))", systemImage: "checkmark.circle.fill")
+                .font(.caption).foregroundStyle(.green)
+        case let .updateAvailable(version, checkedAt):
+            Label("发现 v\(version) · \(checkedAt.formatted(date: .omitted, time: .shortened))", systemImage: "arrow.down.circle.fill")
+                .font(.caption).foregroundStyle(.blue)
+        case let .failed(message, checkedAt):
+            Label("检查失败 · \(checkedAt.formatted(date: .omitted, time: .shortened)) · \(message)", systemImage: "exclamationmark.circle.fill")
+                .font(.caption).foregroundStyle(.red).lineLimit(2)
         }
     }
 
@@ -515,7 +547,10 @@ struct MenuBarView: View {
             Button("启动探测") { model.startProbe() }
         }
         Divider()
-        Button("检查更新") { Task { await model.checkForUpdates() } }
+        Button(model.isCheckingForUpdates ? "正在检查更新…" : "检查更新") {
+            Task { await model.checkForUpdates() }
+        }
+        .disabled(model.isCheckingForUpdates)
         Button("退出 RelayDock") {
             model.stopProbe()
             NSApp.terminate(nil)

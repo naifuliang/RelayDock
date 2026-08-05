@@ -15,6 +15,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var availableRelease: GitHubRelease?
     @Published private(set) var isCheckingForUpdates = false
     @Published private(set) var isDownloadingUpdate = false
+    @Published private(set) var updateInstallerWasOpened = false
+    @Published private(set) var updateCheckResult: UpdateCheckResult = .idle
     @Published private(set) var modelProbeStates: [UUID: ModelProbeState] = [:]
     @Published var automaticUpdateChecks: Bool {
         didSet { defaults.set(automaticUpdateChecks, forKey: Self.automaticUpdatesKey) }
@@ -32,6 +34,8 @@ final class AppModel: ObservableObject {
     private static let selectedProfileKey = "selectedGatewayProfileID"
     private static let automaticUpdatesKey = "automaticUpdateChecks"
     private static let lastUpdateCheckKey = "lastUpdateCheck"
+    private static let lastUpdateOutcomeKey = "lastUpdateOutcome"
+    private static let lastCheckedAppVersionKey = "lastCheckedAppVersion"
 
     init() {
         #if DEBUG
@@ -368,42 +372,77 @@ final class AppModel: ObservableObject {
     }
 
     func checkForUpdates(silent: Bool = false) async {
-        if silent,
-           let lastCheck = defaults.object(forKey: Self.lastUpdateCheckKey) as? Date,
-           Date().timeIntervalSince(lastCheck) < 24 * 60 * 60 { return }
+        guard !isCheckingForUpdates else { return }
+        let lastCheck = defaults.object(forKey: Self.lastUpdateCheckKey) as? Date
+        if silent, GitHubUpdater.shouldSkipAutomaticCheck(
+            lastCheck: lastCheck,
+            lastOutcome: defaults.string(forKey: Self.lastUpdateOutcomeKey),
+            lastCheckedAppVersion: defaults.string(forKey: Self.lastCheckedAppVersionKey),
+            currentVersion: currentVersion
+        ), let lastCheck {
+            updateCheckResult = .upToDate(lastCheck)
+            return
+        }
         isCheckingForUpdates = true
+        updateCheckResult = .checking
         if !silent { statusMessage = "正在检查 GitHub 更新…" }
         defer { isCheckingForUpdates = false }
         do {
             let release = try await GitHubUpdater.fetchLatestRelease()
-            defaults.set(Date(), forKey: Self.lastUpdateCheckKey)
+            let checkedAt = Date()
+            defaults.set(checkedAt, forKey: Self.lastUpdateCheckKey)
             if !release.draft, !release.prerelease,
                VersionComparator.isNewer(release.version, than: currentVersion) {
                 availableRelease = release
+                updateCheckResult = .updateAvailable(version: release.version, checkedAt: checkedAt)
+                defaults.set("available", forKey: Self.lastUpdateOutcomeKey)
+                defaults.set(currentVersion, forKey: Self.lastCheckedAppVersionKey)
                 statusMessage = "发现新版本 \(release.version)"
-            } else if !silent {
+            } else {
                 availableRelease = nil
-                statusMessage = "RelayDock \(currentVersion) 已是最新版本"
+                updateCheckResult = .upToDate(checkedAt)
+                defaults.set("upToDate", forKey: Self.lastUpdateOutcomeKey)
+                defaults.set(currentVersion, forKey: Self.lastCheckedAppVersionKey)
+                if !silent { statusMessage = "RelayDock \(currentVersion) 已是最新版本" }
             }
         } catch {
-            if !silent { statusMessage = "更新检查失败：\(error.localizedDescription)" }
+            let message = error.localizedDescription
+            updateCheckResult = .failed(message: message, checkedAt: Date())
+            if !silent { statusMessage = "更新检查失败：\(message)" }
         }
     }
 
-    func downloadAvailableUpdate() {
-        guard let release = availableRelease else { return }
+    func installAvailableUpdate() {
+        guard let release = availableRelease,
+              !isDownloadingUpdate,
+              !updateInstallerWasOpened else { return }
         isDownloadingUpdate = true
-        statusMessage = "正在从 GitHub 下载 RelayDock \(release.version)…"
+        updateInstallerWasOpened = false
+        statusMessage = "正在下载并验证 RelayDock \(release.version)…"
         Task {
             defer { isDownloadingUpdate = false }
             do {
                 let fileURL = try await GitHubUpdater.downloadDMG(from: release)
-                NSWorkspace.shared.open(fileURL)
-                statusMessage = "更新包已下载到 Downloads 并打开"
+                statusMessage = "下载完成，正在验证安装内容…"
+                let prepared = try await Task.detached(priority: .userInitiated) {
+                    try UpdateInstaller.prepare(dmgURL: fileURL, expectedVersion: release.version)
+                }.value
+                guard NSWorkspace.shared.open(prepared.launcherURL) else {
+                    UpdateInstaller.discard(prepared)
+                    throw UpdateInstallError.launcherFailed
+                }
+                updateInstallerWasOpened = true
+                statusMessage = "安装器已打开；确认后会验证版本并重启 RelayDock"
             } catch {
-                statusMessage = "更新下载失败：\(error.localizedDescription)"
+                statusMessage = "更新安装准备失败：\(error.localizedDescription)"
             }
         }
+    }
+
+    func resetUpdateInstallerHandoff() {
+        guard updateInstallerWasOpened else { return }
+        updateInstallerWasOpened = false
+        statusMessage = "可以重新启动更新安装器"
     }
 
     func startProbe() {
@@ -487,6 +526,9 @@ final class AppModel: ObservableObject {
             defaults.removeObject(forKey: Self.profilesKey)
             defaults.removeObject(forKey: Self.legacyProfileKey)
             defaults.removeObject(forKey: Self.selectedProfileKey)
+            defaults.removeObject(forKey: Self.lastUpdateCheckKey)
+            defaults.removeObject(forKey: Self.lastUpdateOutcomeKey)
+            defaults.removeObject(forKey: Self.lastCheckedAppVersionKey)
             try KeychainStore.removeAll()
             try OpenCodeIntegration.removeGeneratedFiles()
             let profile = GatewayProfile(displayName: "Sub2API")
