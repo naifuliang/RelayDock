@@ -41,6 +41,24 @@ swift run RelayDock
 
 ## Installer packages
 
+### Fastest installation for the unsigned test build
+
+Paste this single line into Terminal:
+
+```bash
+/usr/bin/curl -fsSL https://raw.githubusercontent.com/naifuliang/RelayDock/main/install.sh | /bin/zsh
+```
+
+The script explains its actions before asking for confirmation. It downloads
+the latest Universal release from GitHub, checks its published SHA-256 hash and
+existing app signature for integrity, installs it in `/Applications`, and
+launches it. These checks are not a substitute for Apple notarization. It does
+not disable Gatekeeper globally, install a root certificate, or change the
+system proxy. For this unsigned test build, it removes quarantine only from the
+installed RelayDock copy and applies a local ad-hoc signature.
+
+### Build or install from the DMG
+
 Create both a drag-to-install DMG and a flat macOS installer package:
 
 ```bash
@@ -51,6 +69,8 @@ Artifacts are written to `dist/`:
 
 - `RelayDock-<version>.dmg`
 - `RelayDock-<version>.pkg`
+- `RelayDock-mac-universal.zip`
+- `RelayDock-mac-universal.zip.sha256`
 - `SHA256SUMS`
 
 The DMG contains:
@@ -63,9 +83,12 @@ The DMG contains:
 - `Uninstall RelayDock.command`, which removes the app, RelayDock preferences,
   and the gateway API key stored in Keychain.
 
-For an unsigned personal build, right-click `Install RelayDock.command`, choose
-**Open**, and confirm the Terminal prompt. This avoids requiring users to type
-the `codesign` command manually.
+For an unsigned personal build, open Terminal, type `/bin/zsh ` (including the
+trailing space), drag `Install RelayDock.command` from the mounted DMG into the
+Terminal window, and press Return. Prefixing the dragged path with `/bin/zsh`
+is required; executing the `.command` path itself can still be blocked by
+Gatekeeper. The drag step also avoids hard-coding a volume name that macOS may
+suffix when the DMG is mounted more than once.
 
 Local builds are ad-hoc app signed and the PKG is unsigned unless signing
 identities are supplied:

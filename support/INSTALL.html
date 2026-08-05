@@ -21,17 +21,30 @@
   <p class="subtle">RelayDock 0.1.0 · Cursor 网络链路探针 MVP</p>
 
   <div class="card">
-    <strong>推荐安装方式</strong>
+    <strong>最简单：复制一条命令</strong>
+    <p>打开 macOS 自带的“终端”（Terminal），粘贴下面整行命令并按回车：</p>
+    <code>/usr/bin/curl -fsSL https://raw.githubusercontent.com/naifuliang/RelayDock/main/install.sh | /bin/zsh</code>
+    <p>输入 <code>y</code> 确认，再按提示输入 Mac 登录密码。脚本会从 GitHub 下载最新版本，使用发布的 SHA-256 与现有 App 签名检查文件完整性，然后安装并启动 RelayDock。这些检查不等同于 Apple 公证。</p>
+  </div>
+
+  <p class="note"><strong>安全范围：</strong>安装器不会全局关闭 Gatekeeper、安装根证书或修改系统代理。对于当前未公证测试版，它只会移除 RelayDock 安装副本的 quarantine 属性并执行本地 ad-hoc 签名。脚本源码可在 RelayDock 的公开 GitHub 仓库中审阅。</p>
+
+  <div class="card">
+    <strong>离线备用：从当前磁盘映像安装</strong>
     <ol>
-      <li>右键点击 <code>Install RelayDock.command</code>。</li>
-      <li>选择“打开”，在 macOS 提示中再次确认。</li>
-      <li>Terminal 打开后输入 <code>y</code>，并按提示输入 Mac 登录密码。</li>
+      <li>保持 RelayDock 磁盘映像窗口打开，然后打开 macOS 自带的“终端”（Terminal）。</li>
+      <li>在终端中输入 <code>/bin/zsh </code>，注意末尾需要保留一个空格，先不要按回车。</li>
+      <li>把磁盘映像窗口里的 <code>Install RelayDock.command</code> 直接拖到终端窗口。终端会自动填入正确路径。</li>
+      <li>按回车运行。出现 <code>Continue? [y/N]</code> 后输入 <code>y</code>，并按提示输入 Mac 登录密码。</li>
       <li>脚本会校验 App、安装到 <code>/Applications</code>、执行本地签名并启动。</li>
     </ol>
   </div>
 
-  <h2>为什么需要右键打开？</h2>
-  <p>当前个人测试包没有 Apple Developer ID 与公证票据。安装脚本会在本机执行 ad-hoc 签名，用户无需手动输入 <code>codesign</code>。正式公开分发仍建议使用 Developer ID 签名与 Apple notarization。</p>
+  <p><strong>离线安装注意：</strong>不要直接双击脚本，也不要只把脚本拖到终端后运行。命令最前面必须有 <code>/bin/zsh</code>。完整命令看起来类似：<br><code>/bin/zsh "/Volumes/RelayDock 0.1.0/Install RelayDock.command"</code></p>
+
+  <h2>为什么不能直接双击？</h2>
+  <p>当前个人测试包还没有 Apple Developer ID 与公证票据。直接双击会触发“无法验证是否包含恶意软件”的 Gatekeeper 提示。安装脚本会在本机执行 ad-hoc 签名，用户无需手动运行 <code>codesign</code>。上面的拖拽方式也不依赖固定卷名，因此即使系统把磁盘映像命名为 <code>RelayDock 0.1.0 2</code> 也能正确运行。</p>
+  <p>也可以在弹窗中点击“完成”，然后前往“系统设置 → 隐私与安全性 → 安全性”选择“仍要打开”。不要全局关闭 Gatekeeper，也不要使用 <code>spctl --master-disable</code>。</p>
 
   <h2>开始探测</h2>
   <ol>
