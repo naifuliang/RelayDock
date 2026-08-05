@@ -55,7 +55,8 @@ Artifacts are written to `dist/`:
 
 The DMG contains:
 
-- `安装说明.html`, with a step-by-step Chinese install and probe guide.
+- `Install Guide.html` and `安装说明.html`, with matching English and Chinese
+  step-by-step install and probe guides.
 - `Install RelayDock.command`, which copies the app to `/Applications`, removes
   the quarantine attribute from that local copy, and applies an ad-hoc local
   signature.

@@ -45,6 +45,7 @@ ditto --noextattr --norsrc "$APP_PATH" "$STAGING_DIR/$APP_NAME.app"
 cp "$ROOT_DIR/scripts/install-relaydock.command" "$STAGING_DIR/Install RelayDock.command"
 cp "$ROOT_DIR/scripts/uninstall-relaydock.command" "$STAGING_DIR/Uninstall RelayDock.command"
 cp "$ROOT_DIR/support/INSTALL.html" "$STAGING_DIR/安装说明.html"
+cp "$ROOT_DIR/support/INSTALL_EN.html" "$STAGING_DIR/Install Guide.html"
 ln -s /Applications "$STAGING_DIR/Applications"
 
 hdiutil create \

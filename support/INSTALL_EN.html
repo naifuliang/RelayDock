@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Install RelayDock</title>
+  <style>
+    :root { color-scheme: light dark; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+    body { max-width: 720px; margin: 48px auto; padding: 0 28px; line-height: 1.65; }
+    h1 { font-size: 34px; letter-spacing: -.02em; margin-bottom: 6px; }
+    h2 { margin-top: 32px; font-size: 20px; }
+    .subtle { color: #777; }
+    .card { padding: 20px 24px; border-radius: 16px; background: rgba(127,127,127,.1); margin: 18px 0; }
+    li { margin: 9px 0; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .92em; }
+    .note { border-left: 4px solid #ff7a1a; padding-left: 16px; }
+  </style>
+</head>
+<body>
+  <h1>Install RelayDock</h1>
+  <p class="subtle">RelayDock 0.1.0 · Cursor Network Probe MVP</p>
+
+  <div class="card">
+    <strong>Recommended installation</strong>
+    <ol>
+      <li>Right-click <code>Install RelayDock.command</code>.</li>
+      <li>Choose <strong>Open</strong>, then confirm the macOS prompt.</li>
+      <li>When Terminal opens, enter <code>y</code> and provide your Mac login password when requested.</li>
+      <li>The script verifies the app, installs it in <code>/Applications</code>, applies a local signature, and launches RelayDock.</li>
+    </ol>
+  </div>
+
+  <h2>Why is right-click Open required?</h2>
+  <p>This personal test build does not yet have an Apple Developer ID or notarization ticket. The installer applies an ad-hoc signature locally, so you do not need to run <code>codesign</code> yourself. Public production distribution should use Developer ID signing and Apple notarization.</p>
+
+  <h2>Run the probe</h2>
+  <ol>
+    <li>Open RelayDock and click <strong>启动探测代理</strong> (Start Probe Proxy).</li>
+    <li>Click <strong>重启 Cursor 并探测</strong> (Restart Cursor and Probe).</li>
+    <li>Send one test message in Cursor using Anthropic BYOK.</li>
+    <li>Return to RelayDock and check whether <code>api.anthropic.com</code> appears.</li>
+  </ol>
+
+  <p class="note"><strong>Scope:</strong> version 0.1.0 observes CONNECT destination hostnames only. It does not decrypt HTTPS or redirect Anthropic requests to Sub2API. Whether a scoped TLS bridge is viable depends on the probe result.</p>
+
+  <h2>Uninstall</h2>
+  <p>Right-click <code>Uninstall RelayDock.command</code> and choose Open. It removes the app, RelayDock preferences, and the gateway API key stored in Keychain. This version does not install a root certificate or change the system proxy.</p>
+</body>
+</html>
