@@ -4,6 +4,10 @@ RelayDock is a native macOS launcher and endpoint bridge project for AI coding t
 
 <img src="Assets/AppIcon.png" alt="RelayDock app icon" width="180">
 
+The icon is hand-drawn from deterministic vector geometry. Edit
+`Assets/AppIcon.svg` or the matching dimensions in `scripts/render-icon.swift`;
+`scripts/build-icon.sh` renders the PNG and ICNS assets.
+
 Version 0.1.0 is intentionally a **Probe MVP**. It answers one important question safely: does Cursor's Anthropic BYOK traffic connect directly from the Mac to `api.anthropic.com`, or is it relayed through Cursor's backend? It does not yet redirect or decrypt Anthropic traffic.
 
 ## Current MVP

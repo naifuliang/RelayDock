@@ -12,10 +12,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if [[ ! -f "$SOURCE_PNG" ]]; then
-    echo "Missing icon source: $SOURCE_PNG" >&2
-    exit 1
-fi
+"$ROOT_DIR/scripts/render-icon.swift" "$SOURCE_PNG"
 
 mkdir -p "$ICONSET_DIR"
 
