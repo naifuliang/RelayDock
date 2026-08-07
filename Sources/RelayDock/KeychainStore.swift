@@ -1,5 +1,4 @@
 import Foundation
-import LocalAuthentication
 import Security
 
 enum KeychainStore {
@@ -41,12 +40,7 @@ enum KeychainStore {
     }
 
     private static func save(_ value: String, account: String) throws {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecUseAuthenticationContext as String: nonInteractiveContext()
-        ]
+        let query = query(account: account)
         guard !value.isEmpty else {
             let status = SecItemDelete(query as CFDictionary)
             guard status == errSecSuccess || status == errSecItemNotFound else {
@@ -63,7 +57,7 @@ enum KeychainStore {
         guard updateStatus == errSecItemNotFound else { throw KeychainError(status: updateStatus) }
 
         var item = query
-        item.removeValue(forKey: kSecUseAuthenticationContext as String)
+        item.removeValue(forKey: kSecUseAuthenticationUI as String)
         item[kSecValueData as String] = Data(value.utf8)
         item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         let status = SecItemAdd(item as CFDictionary, nil)
@@ -71,14 +65,9 @@ enum KeychainStore {
     }
 
     private static func load(account: String) -> String {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-            kSecUseAuthenticationContext as String: nonInteractiveContext()
-        ]
+        var query = query(account: account)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
         guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
               let data = result as? Data else { return "" }
@@ -86,12 +75,7 @@ enum KeychainStore {
     }
 
     private static func remove(account: String) throws {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecUseAuthenticationContext as String: nonInteractiveContext()
-        ]
+        let query = query(account: account)
         let status = SecItemDelete(query as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw KeychainError(status: status)
@@ -102,7 +86,7 @@ enum KeychainStore {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecUseAuthenticationContext as String: nonInteractiveContext()
+            kSecUseAuthenticationUI as String: kSecUseAuthenticationUIFail
         ]
         let status = SecItemDelete(query as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
@@ -110,10 +94,16 @@ enum KeychainStore {
         }
     }
 
-    private static func nonInteractiveContext() -> LAContext {
-        let context = LAContext()
-        context.interactionNotAllowed = true
-        return context
+    static func query(account: String) -> [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            // LAContext.interactionNotAllowed does not suppress every legacy
+            // Keychain ACL prompt. This query flag guarantees fail-closed,
+            // non-interactive access after a signing identity change.
+            kSecUseAuthenticationUI as String: kSecUseAuthenticationUIFail
+        ]
     }
 }
 

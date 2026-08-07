@@ -25,7 +25,9 @@ enum OpenCodeIntegration {
         directory: URL = configurationDirectory
     ) throws -> URL {
         let enabledProfiles = profiles.filter { profile in
-            profile.isEnabled && profile.models.contains(where: { $0.isEnabled && !$0.modelID.trimmed.isEmpty })
+            profile.isEnabled && profile.models.contains(where: {
+                $0.isEnabled && $0.isVerified && !$0.modelID.trimmed.isEmpty
+            })
         }
         guard !enabledProfiles.isEmpty else { throw OpenCodeError.noEnabledModels }
 
@@ -42,6 +44,7 @@ enum OpenCodeIntegration {
             withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700]
         )
+        try cleanupPendingSensitiveBackups(parentDirectory: parentDirectory)
         try fileManager.createDirectory(
             at: stagingDirectory,
             withIntermediateDirectories: false,
@@ -84,7 +87,7 @@ enum OpenCodeIntegration {
             }
 
             var models: [String: Any] = [:]
-            for model in profile.models where model.isEnabled && !model.modelID.trimmed.isEmpty {
+            for model in profile.models where model.isEnabled && model.isVerified && !model.modelID.trimmed.isEmpty {
                 let modelID = model.modelID.trimmed
                 let displayName = model.displayName.trimmed.isEmpty ? modelID : model.displayName.trimmed
                 models[modelID] = ["name": displayName]
@@ -122,7 +125,21 @@ enum OpenCodeIntegration {
             throw error
         }
         if hadExistingConfiguration, fileManager.fileExists(atPath: backupDirectory.path) {
-            try? fileManager.removeItem(at: backupDirectory)
+            do {
+                try fileManager.removeItem(at: backupDirectory)
+            } catch {
+                let cleanupDirectory = parentDirectory.appendingPathComponent(
+                    ".OpenCode.cleanup.\(UUID().uuidString)", isDirectory: true
+                )
+                do {
+                    try fileManager.moveItem(at: backupDirectory, to: cleanupDirectory)
+                    throw OpenCodeError.sensitiveBackupCleanupFailed(cleanupDirectory.path)
+                } catch let cleanupError as OpenCodeError {
+                    throw cleanupError
+                } catch {
+                    throw OpenCodeError.sensitiveBackupCleanupFailed(backupDirectory.path)
+                }
+            }
         }
         return directory.appendingPathComponent("opencode.json")
     }
@@ -153,6 +170,25 @@ enum OpenCodeIntegration {
         }
     }
 
+    static func cleanupPendingSensitiveBackups(
+        parentDirectory: URL,
+        fileManager: FileManager = .default
+    ) throws {
+        guard fileManager.fileExists(atPath: parentDirectory.path) else { return }
+        let entries = try fileManager.contentsOfDirectory(
+            at: parentDirectory,
+            includingPropertiesForKeys: nil,
+            options: []
+        )
+        for entry in entries where entry.lastPathComponent.hasPrefix(".OpenCode.cleanup.") {
+            do {
+                try fileManager.removeItem(at: entry)
+            } catch {
+                throw OpenCodeError.sensitiveBackupCleanupFailed(entry.path)
+            }
+        }
+    }
+
     private static var executableURL: URL? {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let candidates = [
@@ -178,11 +214,12 @@ enum OpenCodeError: LocalizedError {
     case notInstalled
     case desktopAlreadyRunning
     case launchFailed
+    case sensitiveBackupCleanupFailed(String)
 
     var errorDescription: String? {
         switch self {
         case .noEnabledModels:
-            return "请至少启用一个包含模型 ID 的端点。"
+            return "请至少测试并启用一个可用模型。"
         case let .invalidEndpoint(name):
             return "端点“\(name)”的地址无效。"
         case .notInstalled:
@@ -191,6 +228,8 @@ enum OpenCodeError: LocalizedError {
             return "OpenCode 正在运行。请先完全退出 OpenCode，再点击“配置并启动”。"
         case .launchFailed:
             return "无法打开 OpenCode 启动器。"
+        case let .sensitiveBackupCleanupFailed(path):
+            return "新配置已写入，但包含旧 API Key 的备份未能删除：\(path)。RelayDock 已停止启动 OpenCode，请先安全删除该目录。"
         }
     }
 }

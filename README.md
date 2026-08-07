@@ -22,13 +22,12 @@ The icon is hand-drawn from deterministic vector geometry. Edit
 `Assets/AppIcon.svg` or the matching dimensions in `scripts/render-icon.swift`;
 `scripts/build-icon.sh` renders the PNG and ICNS assets.
 
-Version 0.4.0 adds safe quick-connect presets for OpenAI API, Kimi Code, and
-Volcengine Ark Coding Plan, plus a neutral `Gateway 1` default. It retains the
-verified update flow, multi-endpoint workspace, automatic model discovery,
-per-model verification, and direct OpenCode/Cursor launch actions. Cursor
-remains an explicit **Probe MVP**: RelayDock observes whether Anthropic BYOK
-traffic connects directly from the Mac, but does not yet redirect or decrypt
-Cursor traffic.
+Version 0.5.0 adds verified-model imports and real one-click tool setup.
+OpenCode receives an isolated multi-endpoint configuration. Cursor receives its
+OpenAI-compatible Base URL/key directly; its Anthropic key is paired with a
+loopback TLS bridge restricted to `api.anthropic.com`. Cursor configuration is
+version-checked, transactional, and rolled back if its encrypted-key migration
+does not complete.
 
 ## Current features
 
@@ -38,7 +37,9 @@ Cursor traffic.
   Ark Coding Plan. A preset fills the supported protocol and official API base;
   the user still supplies that service's API key.
 - Automatic model discovery after an endpoint/key connection test.
-- One-click verification of every enabled model with per-model results.
+- One-click verification of every enabled model with per-model results;
+  definitively unsupported models are removed, while auth/rate-limit/network
+  failures are retained for correction.
 - Multiple selectable model IDs and a separate Keychain API key per endpoint.
 - One-click generation of an isolated OpenCode configuration through the
   official `OPENCODE_CONFIG` mechanism. Existing global config is not replaced.
@@ -55,13 +56,22 @@ Cursor traffic.
 - Provider-aware endpoint health checks and model catalog requests.
 - Catalog synchronization keeps text-generation candidates for coding tools;
   Azure's retired legacy deployment-list mode requires manual deployment IDs.
-- Local HTTP CONNECT probe bound to `127.0.0.1` on a random port.
-- Cursor launcher using an app-scoped `--proxy-server` argument.
-- Domain-only connection diagnostics; TLS payloads remain encrypted.
-- One-click normal launch actions for OpenCode and Cursor.
+- A diagnostic CONNECT Probe and a separate functional Sub2API Bridge, both
+  bound to `127.0.0.1` on random ports.
+- Transactional Cursor 3.x configuration import with a mode-`0600` rollback
+  snapshot and verification that Cursor migrated temporary keys into its own
+  encrypted SecretStorage.
+- OpenAI-compatible Cursor import writes the selected Base URL/key and verified
+  model IDs. Anthropic import writes only the Claude key; the loopback bridge
+  rewrites the fixed Anthropic destination to the selected HTTPS gateway.
+- Streaming Anthropic request/response forwarding over HTTP/1.1, including SSE;
+  prompts, bodies, responses, and credentials are never logged.
+- A self-signed leaf certificate scoped to `api.anthropic.com` only (`CA:FALSE`,
+  server-auth EKU), with one-click install and removal.
 - The bundled uninstaller removes settings, generated OpenCode files,
   credentials, and the private local signing identity.
-- No system proxy changes, root certificate installation, or HTTPS decryption in this milestone.
+- No global system-proxy change and no root CA. HTTPS termination is limited to
+  the explicitly installed `api.anthropic.com` leaf certificate.
 
 ## Build
 
@@ -87,13 +97,15 @@ The script explains its actions before asking for confirmation. It downloads
 the latest Universal release from GitHub, checks its published SHA-256 hash and
 existing app signature for integrity, installs it in `/Applications`, and
 launches it. These checks are not a substitute for Apple notarization. It does
-not disable Gatekeeper globally, install a root certificate, or change the
+not disable Gatekeeper globally, install a root CA, or change the
 system proxy. For this unsigned test build, it removes quarantine only from the
 installed RelayDock copy and signs it with a stable RelayDock-only identity stored
 in `~/Library/Keychains/RelayDockLocalSigning.keychain-db`. This keychain is
 added only to the user's Keychain search list so macOS can resolve the signing
-certificate; no certificate trust is added. The uninstaller removes the
-keychain and its search-list entry.
+certificate; no TLS trust is added during app installation. If the user later
+enables the Anthropic Bridge, RelayDock separately asks macOS to trust one
+`CA:FALSE` leaf for `api.anthropic.com`. The uninstaller removes that trust,
+certificate/private key, signing keychain, and search-list entry.
 
 The first upgrade from an older ad-hoc-signed build changes the app's designated
 requirement. RelayDock deliberately refuses interactive Keychain authorization
@@ -119,13 +131,13 @@ Artifacts are written to `dist/`:
 The DMG contains:
 
 - `Install Guide.html` and `安装说明.html`, with matching English and Chinese
-  step-by-step install and probe guides.
+  step-by-step install, Cursor Bridge, and OpenCode guides.
 - `Install RelayDock.command`, which copies the app to `/Applications`, removes
   the quarantine attribute from that local copy, and applies a stable local
   RelayDock-only signature.
 - `Uninstall RelayDock.command`, which removes the app, RelayDock preferences,
-  all endpoint API keys, generated configuration, and the private signing
-  keychain.
+  all endpoint API keys, generated configuration, the Anthropic Bridge
+  certificate/private key/trust, and the private signing keychain.
 
 For an unsigned personal build, open Terminal, type `/bin/zsh ` (including the
 trailing space), drag `Install RelayDock.command` from the mounted DMG into the
@@ -154,8 +166,9 @@ Developer ID certificates and notarization.
    Plan, or add a custom endpoint inside the single **Endpoints** card.
 2. Enter the service API key, then use **Sync Models** to test
    the connection and fetch the endpoint's model catalog.
-3. Use **Verify All** to send a minimal request to every enabled model and see
-   its individual result. This can incur a very small amount of API usage.
+3. Use **Verify All** to send a minimal request to every enabled model. Only
+   models that pass are exported; a definitively unsupported model is removed.
+   This can incur a very small amount of API usage.
 4. Save each endpoint, then choose **Configure and open OpenCode**.
 5. RelayDock launches OpenCode with its isolated generated configuration;
    global and project OpenCode configuration precedence is preserved.
@@ -183,27 +196,43 @@ the provider exposes one.
 
 RelayDock writes the key to macOS Keychain only when the endpoint is saved.
 
-## Cursor probe workflow
+## Cursor one-click workflow
 
-1. Open RelayDock and start the probe proxy.
-2. Fully quit any existing Cursor process.
-3. Click **Launch Cursor through proxy**.
-4. Configure Anthropic BYOK in Cursor and send one request.
-5. Look for `api.anthropic.com` in RelayDock diagnostics.
+1. Create and save an OpenAI Compatible endpoint and/or an Anthropic endpoint.
+2. **Sync Models**, then **Verify All**. Only models that pass are importable.
+3. In **Cursor one-click Sub2API**, select the desired endpoint for each
+   protocol and click **Configure and open Cursor**.
+4. RelayDock fully quits Cursor, checks the supported Cursor 3.x database
+   schema, creates a private rollback snapshot, writes Base URL/key/model
+   settings in one transaction, starts the Bridge when Anthropic is selected,
+   and launches Cursor.
+5. RelayDock reports success only after Cursor removes the temporary plaintext
+   key records and creates its encrypted SecretStorage records. Any failure
+   stops the Bridge and restores the original records.
 
-If a direct Anthropic connection is observed, the next milestone can add a narrowly scoped TLS bridge for that host. If only Cursor backend domains appear, local endpoint substitution cannot be done transparently.
+The first Anthropic setup invokes a deliberate macOS trust prompt for the
+domain-scoped leaf certificate. **Uninstall Bridge** removes its trust,
+certificate, and private key. Keep RelayDock running while using Anthropic in
+Cursor because the bridge is local to RelayDock.
 
 ## Security model
 
 - The proxy listens on loopback only.
+- The functional Anthropic Bridge accepts only the two Cursor message POST
+  routes and requires the incoming `x-api-key` to match the selected endpoint
+  key before it can forward a request.
 - Remote gateway profiles require HTTPS; plain HTTP is accepted only for loopback gateways.
 - Non-target connections are tunneled byte-for-byte.
-- The probe stores no request bodies, headers, prompts, or responses.
+- The Probe stores only destination metadata. The Bridge stores no request
+  bodies, headers, prompts, responses, or credentials.
 - Gateway keys are stored with `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`.
 - The unsigned installer creates a private, self-signed code-signing identity in
   `~/Library/Keychains/RelayDockLocalSigning.keychain-db` so future local signatures remain stable. It is
   not trusted as a root certificate, is not used for TLS, and is removed by the
   uninstaller.
+- Anthropic Bridge TLS uses a separate `CA:FALSE` leaf whose SAN contains only
+  `api.anthropic.com`. It cannot issue certificates for another host and is
+  removed by the in-app Bridge uninstaller and bundled app uninstaller.
 
 ## License
 
