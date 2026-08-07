@@ -2,6 +2,29 @@ import XCTest
 @testable import RelayDock
 
 final class ModelAPIRequestFactoryTests: XCTestCase {
+    func testModelVerificationExcludesOnlyDefinitiveModelFailures() {
+        XCTAssertTrue(ModelVerificationPolicy.isDefinitivelyUnavailable(
+            statusCode: 404,
+            responseData: Data(#"{"error":{"message":"model does not exist"}}"#.utf8)
+        ))
+        XCTAssertTrue(ModelVerificationPolicy.isDefinitivelyUnavailable(
+            statusCode: 403,
+            responseData: Data(#"{"error":{"message":"no access to this model"}}"#.utf8)
+        ))
+        XCTAssertFalse(ModelVerificationPolicy.isDefinitivelyUnavailable(
+            statusCode: 401,
+            responseData: Data(#"{"error":{"message":"invalid API key"}}"#.utf8)
+        ))
+        XCTAssertFalse(ModelVerificationPolicy.isDefinitivelyUnavailable(
+            statusCode: 429,
+            responseData: Data(#"{"error":{"message":"model rate limited"}}"#.utf8)
+        ))
+        XCTAssertFalse(ModelVerificationPolicy.isDefinitivelyUnavailable(
+            statusCode: 500,
+            responseData: Data(#"{"error":{"message":"model backend unavailable"}}"#.utf8)
+        ))
+    }
+
     func testOpenAICatalogAndProbeRequests() throws {
         let profile = GatewayProfile(provider: .openAICompatible, baseURL: "https://gateway.example/v1")
         let catalog = try ModelAPIRequestFactory.catalog(profile: profile, apiKey: "secret")

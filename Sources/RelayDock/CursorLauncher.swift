@@ -10,6 +10,11 @@ enum CursorLauncher {
         FileManager.default.isExecutableFile(atPath: executableURL.path)
     }
 
+    static var installedVersion: String? {
+        guard let bundle = Bundle(url: appURL) else { return nil }
+        return bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+    }
+
     static var isRunning: Bool {
         !NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).isEmpty
     }
@@ -53,6 +58,7 @@ enum LauncherError: LocalizedError {
     case cursorAlreadyRunning
     case cursorDidNotQuit
     case cursorLaunchFailed
+    case proxyStartTimedOut
 
     var errorDescription: String? {
         switch self {
@@ -60,6 +66,7 @@ enum LauncherError: LocalizedError {
         case .cursorAlreadyRunning: return "Cursor 已经在运行。请先退出，或使用“重启并探测”。"
         case .cursorDidNotQuit: return "Cursor 未能在三秒内退出，请手动退出后重试。"
         case .cursorLaunchFailed: return "无法打开 Cursor.app。"
+        case .proxyStartTimedOut: return "RelayDock 探测代理启动超时。"
         }
     }
 }

@@ -16,7 +16,21 @@ fi
 /bin/chmod 700 "$SIGNING_ROOT"
 umask 077
 
-if [[ ! -f "$KEYCHAIN_PATH" || ! -f "$PASSWORD_PATH" ]]; then
+KEYCHAIN_EXISTS=0
+PASSWORD_EXISTS=0
+[[ -f "$KEYCHAIN_PATH" ]] && KEYCHAIN_EXISTS=1
+[[ -f "$PASSWORD_PATH" ]] && PASSWORD_EXISTS=1
+
+if [[ "$KEYCHAIN_EXISTS" != "$PASSWORD_EXISTS" ]]; then
+    echo "RelayDock's local signing identity is incomplete; installation stopped."
+    echo "The existing identity will not be silently replaced because that would"
+    echo "invalidate Keychain access for saved endpoint API keys."
+    echo "Run the RelayDock uninstaller for a clean reset, then reinstall and enter"
+    echo "your endpoint keys once more."
+    exit 4
+fi
+
+if [[ "$KEYCHAIN_EXISTS" == "0" ]]; then
     TEMP_DIR="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/relaydock-signing.XXXXXX")"
     cleanup_signing() { /bin/rm -rf "$TEMP_DIR"; }
     trap cleanup_signing EXIT

@@ -18,15 +18,26 @@ final class AppModel: ObservableObject {
     @Published private(set) var updateInstallerWasOpened = false
     @Published private(set) var updateCheckResult: UpdateCheckResult = .idle
     @Published private(set) var modelProbeStates: [UUID: ModelProbeState] = [:]
+    @Published var cursorOpenAIProfileID: UUID? {
+        didSet { persistOptionalUUID(cursorOpenAIProfileID, key: Self.cursorOpenAIProfileKey) }
+    }
+    @Published var cursorAnthropicProfileID: UUID? {
+        didSet { persistOptionalUUID(cursorAnthropicProfileID, key: Self.cursorAnthropicProfileKey) }
+    }
+    @Published private(set) var bridgeRunning = false
+    @Published private(set) var bridgePort: UInt16?
+    @Published private(set) var bridgeCertificateTrusted = false
     @Published var automaticUpdateChecks: Bool {
         didSet { defaults.set(automaticUpdateChecks, forKey: Self.automaticUpdatesKey) }
     }
 
     private let defaults: UserDefaults
     private var proxy: ProbeProxy?
+    private var anthropicBridge: AnthropicBridgeProxy?
     private var activeProxyToken: UUID?
     private var catalogTask: Task<Void, Never>?
     private var modelTestTask: Task<Void, Never>?
+    private var clipboardClearTask: Task<Void, Never>?
     private var endpointOperationToken: UUID?
     private var savedAPIKey: String
     private static let profilesKey = "gatewayProfiles.v2"
@@ -36,6 +47,8 @@ final class AppModel: ObservableObject {
     private static let lastUpdateCheckKey = "lastUpdateCheck"
     private static let lastUpdateOutcomeKey = "lastUpdateOutcome"
     private static let lastCheckedAppVersionKey = "lastCheckedAppVersion"
+    private static let cursorOpenAIProfileKey = "cursorOpenAIProfileID"
+    private static let cursorAnthropicProfileKey = "cursorAnthropicProfileID"
 
     init(defaults: UserDefaults = .standard, scheduleAutomaticUpdateCheck: Bool = true) {
         self.defaults = defaults
@@ -62,6 +75,8 @@ final class AppModel: ObservableObject {
             apiKey = ""
             savedAPIKey = ""
             automaticUpdateChecks = false
+            cursorOpenAIProfileID = first.id
+            cursorAnthropicProfileID = second.id
             return
         }
         #endif
@@ -91,6 +106,14 @@ final class AppModel: ObservableObject {
         apiKey = initialAPIKey
         savedAPIKey = initialAPIKey
         automaticUpdateChecks = defaults.object(forKey: Self.automaticUpdatesKey) as? Bool ?? true
+        let savedCursorOpenAIID = defaults.string(forKey: Self.cursorOpenAIProfileKey).flatMap(UUID.init(uuidString:))
+        let savedCursorAnthropicID = defaults.string(forKey: Self.cursorAnthropicProfileKey).flatMap(UUID.init(uuidString:))
+        cursorOpenAIProfileID = Self.validCursorOpenAIProfiles(initialProfiles).contains(where: { $0.id == savedCursorOpenAIID })
+            ? savedCursorOpenAIID
+            : Self.validCursorOpenAIProfiles(initialProfiles).first?.id
+        cursorAnthropicProfileID = Self.validCursorAnthropicProfiles(initialProfiles).contains(where: { $0.id == savedCursorAnthropicID })
+            ? savedCursorAnthropicID
+            : Self.validCursorAnthropicProfiles(initialProfiles).first?.id
 
         if migratedLegacy {
             do {
@@ -115,6 +138,21 @@ final class AppModel: ObservableObject {
 
     var cursorInstalled: Bool { CursorLauncher.isInstalled }
     var openCodeInstalled: Bool { OpenCodeIntegration.isInstalled }
+    var cursorOpenAIProfiles: [GatewayProfile] { Self.validCursorOpenAIProfiles(profiles) }
+    var cursorAnthropicProfiles: [GatewayProfile] { Self.validCursorAnthropicProfiles(profiles) }
+    func cursorImportableModelCount(for profile: GatewayProfile) -> Int {
+        CursorModelRouting.modelIDs(for: profile).count
+    }
+    var cursorBYOKProfile: GatewayProfile? {
+        guard draftProfile.provider == .openAICompatible,
+              EndpointValidator.normalizedURL(from: draftProfile.baseURL) != nil,
+              draftProfile.models.contains(where: {
+                  $0.isEnabled && !$0.modelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+              }) else {
+            return nil
+        }
+        return draftProfile
+    }
     var hasUnsavedProfileChanges: Bool {
         draftProfile != profiles.first(where: { $0.id == selectedProfileID }) || apiKey != savedAPIKey
     }
@@ -192,6 +230,8 @@ final class AppModel: ObservableObject {
             return
         }
         profiles.remove(at: index)
+        if cursorOpenAIProfileID == removed.id { cursorOpenAIProfileID = nil }
+        if cursorAnthropicProfileID == removed.id { cursorAnthropicProfileID = nil }
         persistProfiles()
         let next = profiles[min(index, profiles.count - 1)]
         selectProfile(next.id)
@@ -221,6 +261,21 @@ final class AppModel: ObservableObject {
             draftProfile.displayName = name
             draftProfile.baseURL = url.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             guard let index = profiles.firstIndex(where: { $0.id == selectedProfileID }) else { return false }
+            let previous = profiles[index]
+            let endpointChanged = previous.provider != draftProfile.provider
+                || previous.baseURL != draftProfile.baseURL
+                || savedAPIKey != apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            if endpointChanged {
+                for modelIndex in draftProfile.models.indices {
+                    draftProfile.models[modelIndex].isVerified = false
+                }
+            } else {
+                let previousIDs = Dictionary(uniqueKeysWithValues: previous.models.map { ($0.id, $0.modelID) })
+                for modelIndex in draftProfile.models.indices
+                where previousIDs[draftProfile.models[modelIndex].id] != draftProfile.models[modelIndex].modelID {
+                    draftProfile.models[modelIndex].isVerified = false
+                }
+            }
             profiles[index] = draftProfile
             persistProfiles()
             try KeychainStore.saveAPIKey(apiKey.trimmingCharacters(in: .whitespacesAndNewlines), for: selectedProfileID)
@@ -331,6 +386,7 @@ final class AppModel: ObservableObject {
                 }
             }
             var availableCount = 0
+            var unavailableRouteIDs = Set<UUID>()
             for route in routes {
                 guard !Task.isCancelled else {
                     if endpointOperationToken == operationToken { statusMessage = "模型验证已取消" }
@@ -356,9 +412,21 @@ final class AppModel: ObservableObject {
                     guard let http = response as? HTTPURLResponse else { throw EndpointError.invalidResponse }
                     if (200..<300).contains(http.statusCode) {
                         modelProbeStates[route.id] = .available
+                        if let index = draftProfile.models.firstIndex(where: { $0.id == route.id }) {
+                            draftProfile.models[index].isVerified = true
+                        }
                         availableCount += 1
                     } else {
                         modelProbeStates[route.id] = .failed("HTTP \(http.statusCode)")
+                        if let index = draftProfile.models.firstIndex(where: { $0.id == route.id }) {
+                            draftProfile.models[index].isVerified = false
+                        }
+                        if ModelVerificationPolicy.isDefinitivelyUnavailable(
+                            statusCode: http.statusCode,
+                            responseData: responseData
+                        ) {
+                            unavailableRouteIDs.insert(route.id)
+                        }
                     }
                 } catch {
                     guard endpointOperationToken == operationToken else { return }
@@ -367,9 +435,36 @@ final class AppModel: ObservableObject {
                         return
                     }
                     modelProbeStates[route.id] = .failed(error.localizedDescription)
+                    if let index = draftProfile.models.firstIndex(where: { $0.id == route.id }) {
+                        draftProfile.models[index].isVerified = false
+                    }
                 }
             }
-            statusMessage = "模型测试完成：\(availableCount)/\(routes.count) 可用"
+            guard endpointOperationToken == operationToken,
+                  selectedProfileID == profile.id else { return }
+            if !unavailableRouteIDs.isEmpty {
+                draftProfile.models.removeAll { unavailableRouteIDs.contains($0.id) }
+                unavailableRouteIDs.forEach { self.modelProbeStates.removeValue(forKey: $0) }
+            }
+            if let index = profiles.firstIndex(where: { $0.id == self.selectedProfileID }) {
+                profiles[index] = draftProfile
+                _ = persistProfiles()
+            }
+            if profile.provider == .openAICompatible,
+               cursorOpenAIProfileID == nil,
+               Self.validCursorOpenAIProfiles(profiles).contains(where: { $0.id == profile.id }) {
+                cursorOpenAIProfileID = profile.id
+            }
+            if profile.provider == .anthropic,
+               cursorAnthropicProfileID == nil,
+               Self.validCursorAnthropicProfiles(profiles).contains(where: { $0.id == profile.id }) {
+                cursorAnthropicProfileID = profile.id
+            }
+            let retainedFailureCount = routes.count - availableCount - unavailableRouteIDs.count
+            statusMessage = "模型测试完成：\(availableCount) 个可用，自动排除 \(unavailableRouteIDs.count) 个明确不可用"
+            if retainedFailureCount > 0 {
+                statusMessage += "；\(retainedFailureCount) 个瞬时/鉴权失败已保留"
+            }
         }
     }
 
@@ -388,7 +483,10 @@ final class AppModel: ObservableObject {
             let configURL = try OpenCodeIntegration.generateConfiguration(profiles: profiles, apiKeys: keys)
             if launch {
                 try OpenCodeIntegration.launch(configURL: configURL)
-                statusMessage = "OpenCode 已使用 \(profiles.filter(\.isEnabled).count) 个 RelayDock 端点启动"
+                let importedCount = profiles.filter {
+                    $0.isEnabled && $0.models.contains { $0.isEnabled && $0.isVerified }
+                }.count
+                statusMessage = "OpenCode 已使用 \(importedCount) 个已验证 RelayDock 端点启动"
             } else {
                 NSWorkspace.shared.activateFileViewerSelecting([configURL])
                 statusMessage = "OpenCode 配置已生成"
@@ -515,21 +613,279 @@ final class AppModel: ObservableObject {
     }
 
     func launchCursor(restart: Bool) {
-        guard proxyRunning, let proxyPort else {
-            statusMessage = "请先启动探测代理"
-            return
-        }
         isBusy = true
         Task {
             defer { isBusy = false }
             do {
+                let proxyPort = try await ensureProbeReady()
                 if restart { try await CursorLauncher.terminate() }
                 try CursorLauncher.launch(proxyPort: proxyPort)
-                statusMessage = "Cursor 已通过 RelayDock 启动，请发送一条 Anthropic BYOK 消息"
+                statusMessage = "Cursor 已通过探测代理启动；代理不会自动修改 Cursor 的模型或 Endpoint"
             } catch {
                 statusMessage = error.localizedDescription
             }
         }
+    }
+
+    func configureAndLaunchCursor() {
+        guard !isBusy else { return }
+        guard saveSelectedProfile() else { return }
+        let openAIProfile = cursorOpenAIProfiles.first { $0.id == cursorOpenAIProfileID }
+        let anthropicProfile = cursorAnthropicProfiles.first { $0.id == cursorAnthropicProfileID }
+        guard openAIProfile != nil || anthropicProfile != nil else {
+            statusMessage = "请先测试模型，然后选择至少一个 Cursor Endpoint"
+            return
+        }
+
+        let openAIKey = openAIProfile.map { KeychainStore.loadAPIKey(for: $0.id) }
+        let anthropicKey = anthropicProfile.map { KeychainStore.loadAPIKey(for: $0.id) }
+        if openAIProfile != nil, openAIKey?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+            statusMessage = "所选 OpenAI Compatible Endpoint 没有可用 API Key"
+            return
+        }
+        if anthropicProfile != nil, anthropicKey?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+            statusMessage = "所选 Anthropic Endpoint 没有可用 API Key"
+            return
+        }
+
+        let modelIDs = [openAIProfile, anthropicProfile]
+            .compactMap { $0 }
+            .flatMap(CursorModelRouting.modelIDs)
+        let request = CursorImportRequest(
+            openAIBaseURL: openAIProfile?.baseURL,
+            openAIKey: openAIKey,
+            anthropicKey: anthropicKey,
+            modelIDs: modelIDs
+        )
+        isBusy = true
+        statusMessage = anthropicProfile == nil
+            ? "正在安全配置 Cursor…"
+            : "正在准备 api.anthropic.com 域限定证书与 Cursor 配置…"
+
+        Task { [weak self] in
+            guard let self else { return }
+            var receipt: CursorImportReceipt?
+            var installedBridgeTrustThisAttempt = false
+            do {
+                try await CursorLauncher.terminate()
+                stopProbe()
+                stopAnthropicBridge()
+
+                var material: BridgeCertificateMaterial?
+                if anthropicProfile != nil {
+                    material = try await Task.detached(priority: .userInitiated) {
+                        try BridgeCertificateManager.ensureMaterial()
+                    }.value
+                    if let material {
+                        let wasTrusted = try await Task.detached(priority: .utility) {
+                            try BridgeCertificateManager.isTrusted(material)
+                        }.value
+                        installedBridgeTrustThisAttempt = !wasTrusted
+                        if !wasTrusted {
+                            _ = try await Task.detached(priority: .userInitiated) {
+                                try BridgeCertificateManager.installTrust()
+                            }.value
+                        }
+                    }
+                    bridgeCertificateTrusted = true
+                }
+
+                receipt = try await Task.detached(priority: .userInitiated) {
+                    try CursorConfiguration.apply(request)
+                }.value
+
+                if let anthropicProfile, let anthropicKey, let material,
+                   let baseURL = EndpointValidator.normalizedURL(from: anthropicProfile.baseURL) {
+                    let route = try AnthropicBridgeRoute(baseURL: baseURL, apiKey: anthropicKey)
+                    let bridge = AnthropicBridgeProxy(
+                        route: route,
+                        material: material,
+                        onEvent: { [weak self] event in
+                            Task { @MainActor in
+                                self?.events.insert(event, at: 0)
+                                if self?.events.count ?? 0 > 200 { self?.events.removeLast() }
+                            }
+                        },
+                        onState: { [weak self] running, port in
+                            Task { @MainActor in
+                                self?.bridgeRunning = running
+                                self?.bridgePort = port
+                            }
+                        }
+                    )
+                    anthropicBridge = bridge
+                    let port = try bridge.start()
+                    try CursorLauncher.launch(proxyPort: port)
+                } else {
+                    try CursorLauncher.openNormally()
+                }
+
+                guard let receipt else { throw CursorConfigurationError.invalidBackup }
+                var finalized = false
+                for _ in 0..<40 {
+                    try await Task.sleep(for: .milliseconds(250))
+                    do {
+                        try await Task.detached(priority: .utility) {
+                            try CursorConfiguration.finalize(receipt)
+                        }.value
+                        finalized = true
+                        break
+                    } catch CursorConfigurationError.keyMigrationIncomplete {
+                        continue
+                    }
+                }
+                guard finalized else { throw CursorConfigurationError.keyMigrationIncomplete }
+                statusMessage = anthropicProfile == nil
+                    ? "Cursor 已完成 OpenAI Compatible 配置并启动"
+                    : "Cursor 已完成 OpenAI + Anthropic Sub2API 配置；Bridge 正在 127.0.0.1:\(bridgePort ?? 0) 运行"
+            } catch {
+                let configurationError = error
+                stopAnthropicBridge()
+                if let receipt {
+                    do {
+                        try await CursorLauncher.terminate()
+                        try await Task.detached(priority: .userInitiated) {
+                            try CursorConfiguration.rollback(receipt)
+                        }.value
+                        statusMessage = "Cursor 一键配置失败，已恢复原配置：\(configurationError.localizedDescription)"
+                    } catch {
+                        statusMessage = "Cursor 一键配置失败，且自动回滚未完成：\(configurationError.localizedDescription)；回滚错误：\(error.localizedDescription)。请保持 Cursor 关闭并使用 RelayDock 中保留的回滚快照重试。"
+                    }
+                } else {
+                    statusMessage = "Cursor 一键配置失败，尚未写入 Cursor：\(configurationError.localizedDescription)"
+                }
+                if installedBridgeTrustThisAttempt {
+                    do {
+                        try await Task.detached(priority: .userInitiated) {
+                            try BridgeCertificateManager.removeTrust()
+                        }.value
+                        bridgeCertificateTrusted = false
+                    } catch {
+                        bridgeCertificateTrusted = true
+                        statusMessage += "；本次新增的 Bridge 证书信任未能自动撤销：\(error.localizedDescription)"
+                    }
+                }
+            }
+            isBusy = false
+        }
+    }
+
+    func installAnthropicBridgeCertificate() {
+        guard !isBusy else { return }
+        isBusy = true
+        statusMessage = "正在生成并授权仅限 api.anthropic.com 的证书…"
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let material = try await Task.detached(priority: .userInitiated) {
+                    try BridgeCertificateManager.installTrust()
+                }.value
+                bridgeCertificateTrusted = try await Task.detached(priority: .utility) {
+                    try BridgeCertificateManager.isTrusted(material)
+                }.value
+                statusMessage = bridgeCertificateTrusted
+                    ? "Anthropic Bridge 证书已安装并通过域名信任验证"
+                    : "证书未通过信任验证"
+            } catch {
+                bridgeCertificateTrusted = false
+                statusMessage = "证书安装失败：\(error.localizedDescription)"
+            }
+            isBusy = false
+        }
+    }
+
+    func restoreLatestCursorConfiguration() {
+        guard !isBusy else { return }
+        isBusy = true
+        statusMessage = "正在恢复最近一次 Cursor 配置快照…"
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await CursorLauncher.terminate()
+                stopAnthropicBridge()
+                try await Task.detached(priority: .userInitiated) {
+                    try CursorConfiguration.rollbackLatest()
+                }.value
+                statusMessage = "最近一次 Cursor 配置快照已恢复"
+            } catch {
+                statusMessage = "Cursor 配置恢复失败：\(error.localizedDescription)"
+            }
+            isBusy = false
+        }
+    }
+
+    func removeAnthropicBridge() {
+        guard !isBusy else { return }
+        stopAnthropicBridge()
+        isBusy = true
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await Task.detached(priority: .userInitiated) {
+                    try BridgeCertificateManager.removeAll()
+                }.value
+                bridgeCertificateTrusted = false
+                statusMessage = "Anthropic Bridge 证书、私钥和信任设置已移除"
+            } catch {
+                statusMessage = "Bridge 卸载失败：\(error.localizedDescription)"
+            }
+            isBusy = false
+        }
+    }
+
+    func stopAnthropicBridge() {
+        let activeBridge = anthropicBridge
+        anthropicBridge = nil
+        bridgeRunning = false
+        bridgePort = nil
+        activeBridge?.stop()
+    }
+
+    func copyCursorBaseURL() {
+        guard let profile = cursorBYOKProfile else {
+            statusMessage = "请选择一个含可用模型的 OpenAI Compatible Endpoint"
+            return
+        }
+        copyToPasteboard(profile.baseURL)
+        statusMessage = "已复制 Cursor Override OpenAI Base URL"
+    }
+
+    func copyCursorAPIKey() {
+        guard cursorBYOKProfile != nil else {
+            statusMessage = "请选择一个含可用模型的 OpenAI Compatible Endpoint"
+            return
+        }
+        let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else {
+            statusMessage = "当前 Endpoint 没有可复制的 API Key"
+            return
+        }
+        clipboardClearTask?.cancel()
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(key, forType: .string)
+        let changeCount = pasteboard.changeCount
+        clipboardClearTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(60))
+            guard !Task.isCancelled, pasteboard.changeCount == changeCount else { return }
+            pasteboard.clearContents()
+            self?.statusMessage = "Cursor API Key 已从剪贴板自动清除"
+        }
+        statusMessage = "API Key 已复制，60 秒后自动从剪贴板清除"
+    }
+
+    func copyCursorModelIDs() {
+        guard let profile = cursorBYOKProfile else {
+            statusMessage = "请选择一个含可用模型的 OpenAI Compatible Endpoint"
+            return
+        }
+        let modelIDs = profile.models
+            .filter(\.isEnabled)
+            .map(\.modelID)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        copyToPasteboard(modelIDs.joined(separator: "\n"))
+        statusMessage = "已复制 \(modelIDs.count) 个模型 ID"
     }
 
     func openCursor() {
@@ -541,34 +897,65 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private func ensureProbeReady() async throws -> UInt16 {
+        if proxyRunning, let proxyPort { return proxyPort }
+        startProbe()
+        for _ in 0..<50 {
+            if proxyRunning, let proxyPort { return proxyPort }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        throw LauncherError.proxyStartTimedOut
+    }
+
+    private func copyToPasteboard(_ value: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(value, forType: .string)
+    }
+
     func clearDiagnostics() {
         events.removeAll()
         statusMessage = "诊断记录已清除"
     }
 
     func removeLocalData() {
-        do {
-            cancelEndpointOperations()
-            stopProbe()
-            defaults.removeObject(forKey: Self.profilesKey)
-            defaults.removeObject(forKey: Self.legacyProfileKey)
-            defaults.removeObject(forKey: Self.selectedProfileKey)
-            defaults.removeObject(forKey: Self.lastUpdateCheckKey)
-            defaults.removeObject(forKey: Self.lastUpdateOutcomeKey)
-            defaults.removeObject(forKey: Self.lastCheckedAppVersionKey)
-            try KeychainStore.removeAll()
-            try OpenCodeIntegration.removeGeneratedFiles()
-            let profile = GatewayProfile()
-            profiles = [profile]
-            selectedProfileID = profile.id
-            draftProfile = profile
-            apiKey = ""
-            savedAPIKey = ""
-            events.removeAll()
-            persistProfiles()
+        cancelEndpointOperations()
+        stopProbe()
+        stopAnthropicBridge()
+        var failures: [String] = []
+        func attempt(_ label: String, _ operation: () throws -> Void) {
+            do {
+                try operation()
+            } catch {
+                failures.append("\(label)：\(error.localizedDescription)")
+            }
+        }
+        attempt("Bridge 证书与信任", { try BridgeCertificateManager.removeAll() })
+        attempt("钥匙串凭据", { try KeychainStore.removeAll() })
+        attempt("OpenCode 配置", { try OpenCodeIntegration.removeGeneratedFiles() })
+        attempt("Cursor 回滚文件", { try CursorConfiguration.removeBackups() })
+        guard failures.isEmpty else {
+            statusMessage = "清理未全部完成；RelayDock 已保留端点配置以便重试。" + failures.joined(separator: "；")
+            return
+        }
+
+        defaults.removeObject(forKey: Self.profilesKey)
+        defaults.removeObject(forKey: Self.legacyProfileKey)
+        defaults.removeObject(forKey: Self.selectedProfileKey)
+        defaults.removeObject(forKey: Self.lastUpdateCheckKey)
+        defaults.removeObject(forKey: Self.lastUpdateOutcomeKey)
+        defaults.removeObject(forKey: Self.lastCheckedAppVersionKey)
+        let profile = GatewayProfile()
+        profiles = [profile]
+        selectedProfileID = profile.id
+        draftProfile = profile
+        apiKey = ""
+        savedAPIKey = ""
+        events.removeAll()
+        if persistProfiles() {
             statusMessage = "RelayDock 端点、OpenCode 配置和钥匙串凭据已清除"
-        } catch {
-            statusMessage = "清理失败：\(error.localizedDescription)"
+        } else {
+            statusMessage = "敏感数据已清除，但无法写入新的空白端点配置；请重新启动 RelayDock。"
         }
     }
 
@@ -590,6 +977,32 @@ final class AppModel: ObservableObject {
             _ = persistProfiles()
         }
         modelProbeStates.removeAll()
+    }
+
+    private func persistOptionalUUID(_ id: UUID?, key: String) {
+        if let id {
+            defaults.set(id.uuidString, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
+    private static func validCursorOpenAIProfiles(_ profiles: [GatewayProfile]) -> [GatewayProfile] {
+        profiles.filter { profile in
+            profile.isEnabled
+                && profile.provider == .openAICompatible
+                && EndpointValidator.normalizedURL(from: profile.baseURL) != nil
+                && !CursorModelRouting.modelIDs(for: profile).isEmpty
+        }
+    }
+
+    private static func validCursorAnthropicProfiles(_ profiles: [GatewayProfile]) -> [GatewayProfile] {
+        profiles.filter { profile in
+            profile.isEnabled
+                && profile.provider == .anthropic
+                && EndpointValidator.normalizedURL(from: profile.baseURL) != nil
+                && !CursorModelRouting.modelIDs(for: profile).isEmpty
+        }
     }
 
     private func cancelEndpointOperations() {

@@ -46,7 +46,7 @@ struct ContentView: View {
             Button("取消", role: .cancel) {}
             Button("开始测试") { model.testAllModels() }
         } message: {
-            Text("RelayDock 会向每个已启用模型发送一次最小请求，可能产生极少量 API 用量。")
+            Text("RelayDock 会向每个已启用模型发送一次最小请求，可能产生极少量 API 用量。服务商明确返回模型不存在、不可用或无权限时，会自动从清单移除；鉴权、限流、网络和服务端故障会保留，避免误删。")
         }
         .alert("当前端点有未保存的更改", isPresented: $showUnsavedChanges) {
             Button("取消", role: .cancel) { pendingNavigation = nil }
@@ -307,9 +307,20 @@ struct ContentView: View {
     private func modelRow(_ route: Binding<GatewayModel>) -> some View {
         HStack(spacing: 8) {
             Toggle("", isOn: route.isEnabled).labelsHidden().toggleStyle(.checkbox)
-            TextField("模型 ID", text: route.modelID)
+            TextField("模型 ID", text: Binding(
+                get: { route.wrappedValue.modelID },
+                set: { value in
+                    if route.wrappedValue.modelID != value {
+                        route.wrappedValue.modelID = value
+                        route.wrappedValue.isVerified = false
+                    }
+                }
+            ))
             TextField("显示名称（可选）", text: route.displayName)
-            modelStateView(model.modelProbeStates[route.wrappedValue.id])
+            modelStateView(
+                model.modelProbeStates[route.wrappedValue.id],
+                verified: route.wrappedValue.isVerified
+            )
             Button(role: .destructive) { model.removeModel(route.wrappedValue.id) } label: {
                 Image(systemName: "minus.circle")
             }.buttonStyle(.plain)
@@ -318,7 +329,7 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private func modelStateView(_ state: ModelProbeState?) -> some View {
+    private func modelStateView(_ state: ModelProbeState?, verified: Bool) -> some View {
         switch state {
         case .testing:
             ProgressView().controlSize(.small).help("正在测试")
@@ -327,7 +338,11 @@ struct ContentView: View {
         case let .failed(reason):
             Image(systemName: "xmark.circle.fill").foregroundStyle(.red).help(reason)
         case nil:
-            Image(systemName: "circle").foregroundStyle(.tertiary).help("尚未测试")
+            if verified {
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).help("已验证可用")
+            } else {
+                Image(systemName: "circle").foregroundStyle(.tertiary).help("尚未测试")
+            }
         }
     }
 
@@ -346,17 +361,100 @@ struct ContentView: View {
                     )
                     launcherTile(
                         title: "Cursor",
-                        detail: "一键打开 Cursor；普通启动不会注入第三方 Endpoint。",
+                        detail: "事务写入 BYOK 配置，启动本地域限定 Bridge 后打开。",
                         installed: model.cursorInstalled,
                         icon: "cursorarrow",
-                        actionTitle: "打开 Cursor",
-                        action: model.openCursor
+                        actionTitle: "配置并打开",
+                        action: model.configureAndLaunchCursor
                     )
                 }
-                Text("Cursor 的第三方端点能力取决于 Cursor 本身；RelayDock 不会虚假声明普通启动已完成端点替换。")
+                Text("只导入已经逐模型验证为可用的模型。Cursor 数据库结构、Key 迁移或 Bridge 验证任一步失败都会自动回滚。")
                     .font(.caption).foregroundStyle(.secondary)
+                Divider()
+                cursorBYOKAssistant
             }
         }
+    }
+
+    private var cursorBYOKAssistant: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("Cursor 一键接入 Sub2API", systemImage: "point.3.connected.trianglepath.dotted")
+                    .font(.headline)
+                Spacer()
+                if model.bridgeRunning {
+                    Label("Bridge · 127.0.0.1:\(model.bridgePort ?? 0)", systemImage: "checkmark.circle.fill")
+                        .font(.caption).foregroundStyle(.green)
+                }
+            }
+            Text("OpenAI Compatible：写入 OpenAI Key、Override Base URL 和已验证模型。Anthropic：只写 Claude Key；api.anthropic.com 由本地 Bridge 使用限定域名证书转发到所选 Endpoint。")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
+                GridRow {
+                    Text("OpenAI Compatible").font(.caption.weight(.semibold))
+                    Picker("OpenAI Compatible", selection: $model.cursorOpenAIProfileID) {
+                        Text("不导入").tag(Optional<UUID>.none)
+                        ForEach(model.cursorOpenAIProfiles) { profile in
+                            Text("\(profile.displayName) · \(model.cursorImportableModelCount(for: profile)) 模型")
+                                .tag(Optional(profile.id))
+                        }
+                    }
+                    .labelsHidden()
+                }
+                GridRow {
+                    Text("Anthropic").font(.caption.weight(.semibold))
+                    Picker("Anthropic", selection: $model.cursorAnthropicProfileID) {
+                        Text("不导入").tag(Optional<UUID>.none)
+                        ForEach(model.cursorAnthropicProfiles) { profile in
+                            Text("\(profile.displayName) · \(model.cursorImportableModelCount(for: profile)) 模型")
+                                .tag(Optional(profile.id))
+                        }
+                    }
+                    .labelsHidden()
+                }
+            }
+
+            if model.cursorAnthropicProfileID != nil {
+                Label(
+                    "首次使用会请求一次 macOS 证书授权。证书 SAN 仅含 api.anthropic.com、CA:FALSE；不会解密其他域名，可随时一键移除。",
+                    systemImage: "lock.shield"
+                )
+                .font(.caption).foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    model.configureAndLaunchCursor()
+                } label: {
+                    Label("一键配置并打开 Cursor", systemImage: "play.fill")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(model.isBusy || !model.cursorInstalled)
+
+                Button("仅安装 Bridge 证书") { model.installAnthropicBridgeCertificate() }
+                    .buttonStyle(.bordered)
+                    .disabled(model.isBusy)
+                Button("卸载 Bridge") { model.removeAnthropicBridge() }
+                    .buttonStyle(.bordered)
+                    .disabled(model.isBusy)
+                Button("恢复上次 Cursor 配置") { model.restoreLatestCursorConfiguration() }
+                    .buttonStyle(.bordered)
+                    .disabled(model.isBusy || !model.cursorInstalled)
+
+                Spacer()
+                Text(model.bridgeCertificateTrusted ? "证书已验证" : "证书未验证")
+                    .font(.caption)
+                    .foregroundStyle(model.bridgeCertificateTrusted ? .green : .secondary)
+            }
+        }
+        .padding(14)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .stroke(Color.black.opacity(0.085), lineWidth: 1)
+        )
     }
 
     private func launcherTile(
@@ -459,10 +557,10 @@ struct ContentView: View {
                         Button("启动探测代理") { model.startProbe() }
                     }
                     Spacer()
-                    Button("通过代理打开 Cursor") { model.launchCursor(restart: false) }
-                        .disabled(!model.proxyRunning || model.isBusy)
+                    Button("启动探测并打开 Cursor") { model.launchCursor(restart: false) }
+                        .disabled(model.isBusy)
                     Button("重启并探测") { model.launchCursor(restart: true) }
-                        .disabled(!model.proxyRunning || model.isBusy)
+                        .disabled(model.isBusy)
                 }
             }
         }
@@ -603,7 +701,7 @@ struct MenuBarView: View {
         Divider()
         Text("Endpoint：\(model.profiles.filter(\.isEnabled).count) 个已启用")
         Button("打开 OpenCode") { model.configureOpenCode(launch: true) }.disabled(!model.openCodeInstalled)
-        Button("打开 Cursor") { model.openCursor() }.disabled(!model.cursorInstalled)
+        Button("配置并打开 Cursor") { model.configureAndLaunchCursor() }.disabled(!model.cursorInstalled)
         Divider()
         Text(model.proxyRunning ? "探测代理：127.0.0.1:\(model.proxyPort ?? 0)" : "探测代理：已停止")
         if model.proxyRunning {
@@ -619,6 +717,7 @@ struct MenuBarView: View {
         .disabled(model.isCheckingForUpdates)
         Button("退出 RelayDock") {
             model.stopProbe()
+            model.stopAnthropicBridge()
             NSApp.terminate(nil)
         }
     }

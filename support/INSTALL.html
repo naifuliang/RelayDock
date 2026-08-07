@@ -18,7 +18,7 @@
 </head>
 <body>
   <h1>安装 RelayDock</h1>
-  <p class="subtle">RelayDock 0.4.0 · Coding 服务快速接入、多端点与可验证升级</p>
+  <p class="subtle">RelayDock 0.5.0 · 已验证模型与 OpenCode/Cursor 一键配置</p>
 
   <div class="card">
     <strong>最简单：复制一条命令</strong>
@@ -27,7 +27,7 @@
     <p>输入 <code>y</code> 确认，再按提示输入 Mac 登录密码。脚本会从 GitHub 下载最新版本，使用发布的 SHA-256 与现有 App 签名检查文件完整性，然后安装并启动 RelayDock。这些检查不等同于 Apple 公证。</p>
   </div>
 
-  <p class="note"><strong>安全范围：</strong>安装器不会全局关闭 Gatekeeper、安装受信任根证书或修改系统代理。对于当前未公证测试版，它只会移除 RelayDock 安装副本的 quarantine 属性，并在 <code>~/Library/Keychains/RelayDockLocalSigning.keychain-db</code> 创建一个稳定、仅供 RelayDock 使用的本地签名身份。该 Keychain 只加入用户 Keychain 搜索列表，便于 macOS 找到签名证书，不会添加证书信任；卸载时会删除 Keychain 及搜索列表项。</p>
+  <p class="note"><strong>安全范围：</strong>App 安装器不会全局关闭 Gatekeeper、安装受信任根 CA 或修改系统代理。对于当前未公证测试版，它只会移除 RelayDock 安装副本的 quarantine 属性，并创建稳定的 RelayDock 本地签名身份；安装 App 本身不会添加 TLS 信任。以后若为 Cursor 选择 Anthropic Endpoint，RelayDock 才会另行请求 macOS 信任一个 SAN 仅含 <code>api.anthropic.com</code>、<code>CA:FALSE</code> 的叶证书。卸载器会删除两种身份和该信任。</p>
   <p><strong>从旧版升级：</strong>旧版使用每次变化的 ad-hoc 签名。RelayDock 会禁止 Keychain 弹出交互授权框；若旧 Endpoint Key 因签名变化无法读取，界面会显示为空，需要重新填写一次。之后由稳定本地签名安装的版本会持续复用同一身份，不再弹密码框。</p>
 
   <div class="card">
@@ -41,7 +41,7 @@
     </ol>
   </div>
 
-  <p><strong>离线安装注意：</strong>不要直接双击脚本，也不要只把脚本拖到终端后运行。命令最前面必须有 <code>/bin/zsh</code>。完整命令看起来类似：<br><code>/bin/zsh "/Volumes/RelayDock 0.4.0/Install RelayDock.command"</code></p>
+  <p><strong>离线安装注意：</strong>不要直接双击脚本，也不要只把脚本拖到终端后运行。命令最前面必须有 <code>/bin/zsh</code>。完整命令看起来类似：<br><code>/bin/zsh "/Volumes/RelayDock 0.5.0/Install RelayDock.command"</code></p>
 
   <h2>为什么不能直接双击？</h2>
   <p>当前个人测试包还没有 Apple Developer ID 与公证票据。直接双击会触发“无法验证是否包含恶意软件”的 Gatekeeper 提示。安装脚本会完成本地签名，用户无需手动运行 <code>codesign</code>。上面的拖拽方式不依赖固定卷名，即使系统给磁盘映像添加数字后缀也能正确运行。</p>
@@ -51,7 +51,7 @@
   <ol>
     <li>可直接选择 OpenAI API、Kimi Code 或火山方舟 Coding Plan 快速接入，也可以在同一张 Endpoints 配置卡里手动添加 OpenAI Compatible、OpenAI Responses、Azure OpenAI 或 Anthropic 端点。</li>
     <li>填写对应服务的 API Key 后点击“同步模型”，RelayDock 会测试连接并自动获取模型列表。快速接入只会预填兼容协议与官方 API 地址，不会购买套餐、登录服务商账号或把网页会员转换成 API 权限。</li>
-    <li>点击“一键验证全部”，RelayDock 会向每个已启用模型发送最小请求并分别显示成功或失败；这可能产生极少量 API 用量。</li>
+    <li>点击“一键验证全部”，RelayDock 会向每个已启用模型发送最小请求；明确不支持的模型会自动移除，鉴权、限流、网络或服务端错误会保留供修正。这可能产生极少量 API 用量。</li>
     <li>Azure 已停用旧版 deployment 列表接口，因此旧 deployment URL 模式需要手动添加 deployment ID 后再“一键验证”；现代 Azure v1 端点仍可同步模型。</li>
     <li>先完全退出已经运行的 OpenCode.app，再点击“配置并启动 OpenCode”。RelayDock 使用独立的 <code>OPENCODE_CONFIG</code>，不会覆盖已有全局配置。</li>
     <li>应用每天自动检查一次 GitHub Release，Updates 卡片会显示结果与时间。发现更新后，“下载并安装”会校验 digest、挂载后 App 的签名与版本，打开安装器，并在重启 RelayDock 前确认已安装版本。</li>
@@ -59,17 +59,17 @@
 
   <p class="note"><strong>Key 说明：</strong>OpenAI 需要 OpenAI Platform API Key，ChatGPT Plus/Pro 与 API 使用相互独立；Kimi Code 需要 Kimi Code Console 专用 Key，不能与 Kimi API Platform Key 混用；火山方舟 Coding Plan 需要服务商签发的 Coding Plan API Key。Kimi Code 与方舟预设会保留官方推荐的模型别名作为模型目录不可用时的兜底；若“同步模型”成功返回目录，RelayDock 会使用实际目录。Key 仅在保存端点时写入 macOS Keychain。</p>
 
-  <h2>Cursor 网络探测</h2>
+  <h2>Cursor 一键配置</h2>
   <ol>
-    <li>打开 RelayDock，点击“启动探测代理”。</li>
-    <li>点击“重启 Cursor 并探测”。</li>
-    <li>在 Cursor 中使用 Anthropic BYOK 发送一条测试消息。</li>
-    <li>回到 RelayDock 查看是否出现 <code>api.anthropic.com</code>。</li>
+    <li>先保存并验证至少一个 OpenAI Compatible 和/或 Anthropic Endpoint。</li>
+    <li>在“Cursor 一键接入 Sub2API”中分别选择 Endpoint，点击“一键配置并打开 Cursor”。</li>
+    <li>OpenAI Compatible 会写入 Cursor 的 OpenAI Key、Override Base URL 与已验证模型 ID；Anthropic 只写 Claude Key，并由本地 Bridge 将 Cursor 固定的 <code>api.anthropic.com</code> 目标转到所选 Endpoint。</li>
+    <li>首次 Anthropic 配置会请求一次 macOS 证书授权。证书、Bridge、Cursor 数据库事务和 Cursor 加密 Key 迁移全部验证成功后，界面才会显示成功；失败自动回滚。</li>
   </ol>
 
-  <p class="note"><strong>范围说明：</strong>0.4.0 支持 OpenCode 多端点及 Coding 服务快速接入，并可一键普通启动 OpenCode 与 Cursor；Cursor 的端点能力仍只做 CONNECT 目标探测，不解密 HTTPS，也不会把 Anthropic 请求重定向到第三方网关。界面会明确区分这些能力。</p>
+  <p class="note"><strong>Bridge 范围：</strong>只监听本机回环地址。非目标域名仍是原样加密隧道；只有 <code>api.anthropic.com</code> 会终止 TLS 并改写 Endpoint。请求体、响应、Prompt、Header 与 Key 均不记录。使用该路线时需要保持 RelayDock 运行。</p>
 
   <h2>卸载</h2>
-  <p>使用 <code>/bin/zsh</code> 运行 <code>Uninstall RelayDock.command</code>。它会删除 App、全部端点与 Keychain API Key、RelayDock 生成的 OpenCode 配置，以及私有本地签名 Keychain。此版本不会安装根证书或修改系统代理。</p>
+  <p>使用 <code>/bin/zsh</code> 运行 <code>Uninstall RelayDock.command</code>。它会删除 App、Endpoint 与 Keychain API Key、OpenCode 配置、Cursor 回滚文件、Anthropic Bridge 证书/私钥/信任，以及私有本地签名 Keychain。RelayDock 不会安装根 CA，也不会修改全局系统代理。</p>
 </body>
 </html>

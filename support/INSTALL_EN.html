@@ -18,7 +18,7 @@
 </head>
 <body>
   <h1>Install RelayDock</h1>
-  <p class="subtle">RelayDock 0.4.0 · Coding-service quick connect, multiple endpoints and verified updates</p>
+  <p class="subtle">RelayDock 0.5.0 · Verified models and one-click OpenCode/Cursor setup</p>
 
   <div class="card">
     <strong>Easiest: paste one command</strong>
@@ -27,7 +27,7 @@
     <p>Enter <code>y</code> to confirm, then provide your Mac login password. The script downloads the latest release from GitHub, checks its published SHA-256 hash and existing app signature for integrity, installs it, and opens RelayDock. These checks are not a substitute for Apple notarization.</p>
   </div>
 
-  <p class="note"><strong>Security scope:</strong> The installer does not disable Gatekeeper globally, install a trusted root certificate, or change the system proxy. For this unsigned test build, it removes quarantine only from the installed RelayDock copy and creates a stable RelayDock-only signing identity in <code>~/Library/Keychains/RelayDockLocalSigning.keychain-db</code>. That keychain is added only to the user's Keychain search list so macOS can resolve the signer; no certificate trust is added. The uninstaller removes the keychain and its search-list entry.</p>
+  <p class="note"><strong>Security scope:</strong> The app installer does not disable Gatekeeper globally, install a trusted root CA, or change the system proxy. For this unsigned test build, it removes quarantine only from the installed RelayDock copy and creates a stable RelayDock-only signing identity in <code>~/Library/Keychains/RelayDockLocalSigning.keychain-db</code>. No TLS trust is added during app installation. If you later select an Anthropic endpoint for Cursor, RelayDock separately asks macOS to trust one <code>CA:FALSE</code> leaf whose SAN is only <code>api.anthropic.com</code>. The uninstaller removes both identities and that trust.</p>
   <p><strong>Upgrading from an older build:</strong> older releases used a changing ad-hoc signature. RelayDock now suppresses interactive Keychain authorization prompts. If an old endpoint key cannot be read after the signature change, it appears empty and must be entered once more. Releases installed with the stable local identity preserve access afterward without password prompts.</p>
 
   <div class="card">
@@ -41,7 +41,7 @@
     </ol>
   </div>
 
-  <p><strong>Offline installation note:</strong> Do not double-click the script, and do not run the dragged path by itself. The command must begin with <code>/bin/zsh</code>. It should look similar to:<br><code>/bin/zsh "/Volumes/RelayDock 0.4.0/Install RelayDock.command"</code></p>
+  <p><strong>Offline installation note:</strong> Do not double-click the script, and do not run the dragged path by itself. The command must begin with <code>/bin/zsh</code>. It should look similar to:<br><code>/bin/zsh "/Volumes/RelayDock 0.5.0/Install RelayDock.command"</code></p>
 
   <h2>Why not double-click?</h2>
   <p>This personal test build does not yet have an Apple Developer ID or notarization ticket. Double-clicking it triggers Gatekeeper's “cannot verify” warning. The installer applies the local signature, so you do not need to run <code>codesign</code> yourself. The drag-to-Terminal method also works when macOS mounts the image with a numeric suffix.</p>
@@ -51,7 +51,7 @@
   <ol>
     <li>Use a quick-connect preset for OpenAI API, Kimi Code, or Volcengine Ark Coding Plan, or use <strong>Add Endpoint</strong> in the single Endpoints card for an OpenAI Compatible, OpenAI Responses, Azure OpenAI, or Anthropic endpoint.</li>
     <li>Enter that service's API key, then choose <strong>Sync Models</strong>. RelayDock tests the connection and automatically fetches the model list. Quick connect only fills a compatible protocol and official API base; it does not purchase a plan, sign in to a provider account, or convert a web subscription into API access.</li>
-    <li>Choose <strong>Verify All</strong> to send a minimal request to each enabled model and see individual pass/fail results. This may incur a very small amount of API usage.</li>
+    <li>Choose <strong>Verify All</strong> to send a minimal request to each enabled model. Definitively unsupported models are removed automatically; authentication, rate-limit, network, and server failures stay visible for correction. This may incur a very small amount of API usage.</li>
     <li>Azure's retired legacy deployment-URL mode cannot list deployment IDs; add those IDs manually, then use <strong>Verify All</strong>. Modern Azure v1 endpoints can sync models.</li>
     <li>Quit any running OpenCode.app instance, then choose <strong>Configure and launch OpenCode</strong>. RelayDock uses an isolated <code>OPENCODE_CONFIG</code> and does not replace your existing global config.</li>
     <li>RelayDock checks GitHub Releases once per day. The Updates card shows the result and time. When an update exists, <strong>Download and Install</strong> verifies the digest, mounted app signature and version, opens the installer, then confirms the installed version before restarting RelayDock.</li>
@@ -59,17 +59,17 @@
 
   <p class="note"><strong>API keys:</strong> OpenAI requires an OpenAI Platform API key; ChatGPT Plus/Pro and API usage are separate. Kimi Code requires a dedicated Kimi Code Console key, which is not interchangeable with a Kimi API Platform key. Ark Coding Plan requires its provider-issued Coding Plan API key. The Kimi Code and Ark presets retain their documented recommended model aliases as a fallback when catalog discovery is unavailable; a successful <strong>Sync Models</strong> uses the returned catalog. RelayDock writes the key to macOS Keychain only when the endpoint is saved.</p>
 
-  <h2>Cursor network probe</h2>
+  <h2>One-click Cursor setup</h2>
   <ol>
-    <li>Open RelayDock and click <strong>启动探测代理</strong> (Start Probe Proxy).</li>
-    <li>Click <strong>重启 Cursor 并探测</strong> (Restart Cursor and Probe).</li>
-    <li>Send one test message in Cursor using Anthropic BYOK.</li>
-    <li>Return to RelayDock and check whether <code>api.anthropic.com</code> appears.</li>
+    <li>Save and verify at least one OpenAI Compatible and/or Anthropic endpoint.</li>
+    <li>In <strong>Cursor one-click Sub2API</strong>, choose the endpoint for each protocol and click <strong>Configure and open Cursor</strong>.</li>
+    <li>For OpenAI Compatible, RelayDock writes Cursor's OpenAI key, Override Base URL, and verified model IDs. For Anthropic, it writes only the Claude key and routes Cursor's fixed <code>api.anthropic.com</code> destination through the local Bridge.</li>
+    <li>The first Anthropic setup requests a macOS trust authorization once. RelayDock reports success only after the certificate, bridge, Cursor database transaction, and Cursor encrypted-key migration all verify.</li>
   </ol>
 
-  <p class="note"><strong>Scope:</strong> version 0.4.0 supports multiple OpenCode endpoints and coding-service quick connect, plus one-click normal launch of both tools. Cursor remains a CONNECT destination probe: it does not decrypt HTTPS or redirect Anthropic requests to a third-party gateway. The UI keeps these capabilities explicitly separate.</p>
+  <p class="note"><strong>Bridge scope:</strong> the listener is loopback-only. Non-target domains remain encrypted byte tunnels. TLS termination and endpoint rewriting occur only for <code>api.anthropic.com</code>; request bodies, responses, prompts, headers, and keys are never logged. Keep RelayDock running while using this route.</p>
 
   <h2>Uninstall</h2>
-  <p>Run <code>Uninstall RelayDock.command</code> through <code>/bin/zsh</code>. It removes the app, all endpoints and Keychain API keys, RelayDock's generated OpenCode configuration, and its private local signing keychain. This version does not install a root certificate or change the system proxy.</p>
+  <p>Run <code>Uninstall RelayDock.command</code> through <code>/bin/zsh</code>. It removes the app, endpoints and Keychain API keys, generated OpenCode configuration, Cursor rollback files, Anthropic Bridge certificate/private key/trust, and the private local signing keychain. RelayDock never installs a root CA or changes the global system proxy.</p>
 </body>
 </html>

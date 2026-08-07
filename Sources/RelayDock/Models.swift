@@ -33,10 +33,38 @@ enum ProviderKind: String, Codable, CaseIterable, Identifiable {
 }
 
 struct GatewayModel: Codable, Equatable, Identifiable {
-    var id = UUID()
-    var modelID: String = ""
-    var displayName: String = ""
-    var isEnabled = true
+    var id: UUID
+    var modelID: String
+    var displayName: String
+    var isEnabled: Bool
+    var isVerified: Bool
+
+    init(
+        id: UUID = UUID(),
+        modelID: String = "",
+        displayName: String = "",
+        isEnabled: Bool = true,
+        isVerified: Bool = false
+    ) {
+        self.id = id
+        self.modelID = modelID
+        self.displayName = displayName
+        self.isEnabled = isEnabled
+        self.isVerified = isVerified
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, modelID, displayName, isEnabled, isVerified
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        modelID = try container.decodeIfPresent(String.self, forKey: .modelID) ?? ""
+        displayName = try container.decodeIfPresent(String.self, forKey: .displayName) ?? ""
+        isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+        isVerified = try container.decodeIfPresent(Bool.self, forKey: .isVerified) ?? false
+    }
 }
 
 struct GatewayProfile: Codable, Equatable, Identifiable {

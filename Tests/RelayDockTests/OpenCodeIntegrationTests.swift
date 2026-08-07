@@ -2,6 +2,19 @@ import XCTest
 @testable import RelayDock
 
 final class OpenCodeIntegrationTests: XCTestCase {
+    func testRemovesPendingSensitiveCleanupDirectoriesBeforeGeneration() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RelayDockOpenCodeCleanup-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cleanup = root.appendingPathComponent(".OpenCode.cleanup.previous", isDirectory: true)
+        try FileManager.default.createDirectory(at: cleanup, withIntermediateDirectories: true)
+        try Data("old-secret".utf8).write(to: cleanup.appendingPathComponent("key"))
+
+        try OpenCodeIntegration.cleanupPendingSensitiveBackups(parentDirectory: root)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: cleanup.path))
+    }
+
     func testGeneratesMultipleProvidersAndPrivateKeyFiles() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("RelayDockOpenCodeTests-\(UUID().uuidString)", isDirectory: true)
@@ -11,13 +24,13 @@ final class OpenCodeIntegrationTests: XCTestCase {
             displayName: "OpenAI Gateway",
             provider: .openAICompatible,
             baseURL: "https://openai.example.com/v1",
-            models: [GatewayModel(modelID: "gpt-5", displayName: "GPT 5")]
+            models: [GatewayModel(modelID: "gpt-5", displayName: "GPT 5", isVerified: true)]
         )
         let azure = GatewayProfile(
             displayName: "Azure Production",
             provider: .azureOpenAI,
             baseURL: "https://example.openai.azure.com/openai",
-            models: [GatewayModel(modelID: "gpt-5-deployment", displayName: "Azure GPT")],
+            models: [GatewayModel(modelID: "gpt-5-deployment", displayName: "Azure GPT", isVerified: true)],
             azureAPIVersion: "2025-04-01-preview",
             azureDeploymentBasedURLs: true
         )
@@ -25,13 +38,13 @@ final class OpenCodeIntegrationTests: XCTestCase {
             displayName: "Anthropic Gateway",
             provider: .anthropic,
             baseURL: "https://anthropic.example.com/v1",
-            models: [GatewayModel(modelID: "claude-sonnet", displayName: "Claude Sonnet")]
+            models: [GatewayModel(modelID: "claude-sonnet", displayName: "Claude Sonnet", isVerified: true)]
         )
         let responses = GatewayProfile(
             displayName: "Responses Gateway",
             provider: .openAIResponses,
             baseURL: "https://responses.example.com/v1",
-            models: [GatewayModel(modelID: "gpt-5", displayName: "GPT 5 Responses")]
+            models: [GatewayModel(modelID: "gpt-5", displayName: "GPT 5 Responses", isVerified: true)]
         )
 
         let configURL = try OpenCodeIntegration.generateConfiguration(
@@ -72,8 +85,8 @@ final class OpenCodeIntegrationTests: XCTestCase {
             displayName: "Gateway",
             baseURL: "https://gateway.example.com/v1",
             models: [
-                GatewayModel(modelID: "enabled", isEnabled: true),
-                GatewayModel(modelID: "disabled", isEnabled: false)
+                GatewayModel(modelID: "enabled", isEnabled: true, isVerified: true),
+                GatewayModel(modelID: "disabled", isEnabled: false, isVerified: true)
             ]
         )
         let configURL = try OpenCodeIntegration.generateConfiguration(
@@ -100,7 +113,7 @@ final class OpenCodeIntegrationTests: XCTestCase {
         let valid = GatewayProfile(
             displayName: "Working Gateway",
             baseURL: "https://working.example.com/v1",
-            models: [GatewayModel(modelID: "working-model")]
+            models: [GatewayModel(modelID: "working-model", isVerified: true)]
         )
         let configURL = try OpenCodeIntegration.generateConfiguration(
             profiles: [valid], apiKeys: [valid.id: "working-secret"], directory: root
@@ -111,7 +124,7 @@ final class OpenCodeIntegrationTests: XCTestCase {
         let invalid = GatewayProfile(
             displayName: "Broken Gateway",
             baseURL: "http://remote.example.com",
-            models: [GatewayModel(modelID: "broken-model")]
+            models: [GatewayModel(modelID: "broken-model", isVerified: true)]
         )
         XCTAssertThrowsError(try OpenCodeIntegration.generateConfiguration(
             profiles: [valid, invalid],

@@ -6,6 +6,18 @@ enum ModelProbeState: Equatable {
     case failed(String)
 }
 
+enum ModelVerificationPolicy {
+    static func isDefinitivelyUnavailable(statusCode: Int, responseData: Data) -> Bool {
+        guard [400, 403, 404, 410, 422].contains(statusCode) else { return false }
+        let message = String(data: responseData, encoding: .utf8)?.lowercased() ?? ""
+        guard message.contains("model") else { return false }
+        return [
+            "not found", "does not exist", "unknown", "unsupported",
+            "not available", "no access", "permission", "not authorized"
+        ].contains(where: message.contains)
+    }
+}
+
 enum ModelAPIRequestFactory {
     static func catalog(profile: GatewayProfile, apiKey: String, afterID: String? = nil) throws -> URLRequest {
         let base = try validatedBase(profile)
