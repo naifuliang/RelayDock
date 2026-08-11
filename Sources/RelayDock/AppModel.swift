@@ -7,6 +7,9 @@ final class AppModel: ObservableObject {
     @Published var selectedProfileID: UUID
     @Published var draftProfile: GatewayProfile
     @Published var apiKey: String
+    @Published private(set) var credentialLoaded = false
+    @Published private(set) var credentialMayExist = false
+    @Published private(set) var credentialMigrationAvailable = false
     @Published private(set) var proxyRunning = false
     @Published private(set) var proxyPort: UInt16?
     @Published private(set) var events: [ProxyEvent] = []
@@ -32,6 +35,7 @@ final class AppModel: ObservableObject {
     }
 
     private let defaults: UserDefaults
+    private let credentialStore: CredentialStoreClient
     private var proxy: ProbeProxy?
     private var anthropicBridge: AnthropicBridgeProxy?
     private var activeProxyToken: UUID?
@@ -40,6 +44,7 @@ final class AppModel: ObservableObject {
     private var clipboardClearTask: Task<Void, Never>?
     private var endpointOperationToken: UUID?
     private var savedAPIKey: String
+    private var legacyProfileCredentialID: UUID?
     private static let profilesKey = "gatewayProfiles.v2"
     private static let legacyProfileKey = "endpointProfile"
     private static let selectedProfileKey = "selectedGatewayProfileID"
@@ -49,9 +54,16 @@ final class AppModel: ObservableObject {
     private static let lastCheckedAppVersionKey = "lastCheckedAppVersion"
     private static let cursorOpenAIProfileKey = "cursorOpenAIProfileID"
     private static let cursorAnthropicProfileKey = "cursorAnthropicProfileID"
+    private static let credentialMigrationCompleteKey = "credentialVaultMigrationComplete.v1"
+    private static let legacyCredentialProfileKey = "legacyCredentialProfileID.v1"
 
-    init(defaults: UserDefaults = .standard, scheduleAutomaticUpdateCheck: Bool = true) {
+    init(
+        defaults: UserDefaults = .standard,
+        scheduleAutomaticUpdateCheck: Bool = true,
+        credentialStore: CredentialStoreClient = .live
+    ) {
         self.defaults = defaults
+        self.credentialStore = credentialStore
         #if DEBUG
         if ProcessInfo.processInfo.environment["RELAYDOCK_UI_PREVIEW"] == "1" {
             let first = GatewayProfile(
@@ -74,6 +86,9 @@ final class AppModel: ObservableObject {
             draftProfile = first
             apiKey = ""
             savedAPIKey = ""
+            credentialLoaded = false
+            credentialMayExist = false
+            credentialMigrationAvailable = false
             automaticUpdateChecks = false
             cursorOpenAIProfileID = first.id
             cursorAnthropicProfileID = second.id
@@ -100,11 +115,23 @@ final class AppModel: ObservableObject {
         let initialID = initialProfiles.contains(where: { $0.id == savedID }) ? savedID! : initialProfiles[0].id
         selectedProfileID = initialID
         draftProfile = initialProfiles.first(where: { $0.id == initialID }) ?? initialProfiles[0]
-        let initialAPIKey = migratedLegacy
-            ? KeychainStore.loadLegacyAPIKey()
-            : KeychainStore.loadAPIKey(for: initialID)
-        apiKey = initialAPIKey
-        savedAPIKey = initialAPIKey
+        apiKey = ""
+        savedAPIKey = ""
+        credentialLoaded = false
+        let persistedLegacyID = defaults.string(forKey: Self.legacyCredentialProfileKey)
+            .flatMap(UUID.init(uuidString:))
+        legacyProfileCredentialID = migratedLegacy
+            ? initialID
+            : initialProfiles.contains(where: { $0.id == persistedLegacyID }) ? persistedLegacyID : nil
+        if migratedLegacy {
+            defaults.set(initialID.uuidString, forKey: Self.legacyCredentialProfileKey)
+        }
+        credentialMayExist = credentialStore.presence(
+            initialID,
+            legacyProfileCredentialID == initialID
+        ).mayExist
+        credentialMigrationAvailable = !defaults.bool(forKey: Self.credentialMigrationCompleteKey)
+            && credentialStore.migrationNeeded(initialProfiles.map(\.id), legacyProfileCredentialID != nil)
         automaticUpdateChecks = defaults.object(forKey: Self.automaticUpdatesKey) as? Bool ?? true
         let savedCursorOpenAIID = defaults.string(forKey: Self.cursorOpenAIProfileKey).flatMap(UUID.init(uuidString:))
         let savedCursorAnthropicID = defaults.string(forKey: Self.cursorAnthropicProfileKey).flatMap(UUID.init(uuidString:))
@@ -115,18 +142,8 @@ final class AppModel: ObservableObject {
             ? savedCursorAnthropicID
             : Self.validCursorAnthropicProfiles(initialProfiles).first?.id
 
-        if migratedLegacy {
-            do {
-                let migratedKey = try LegacyProfileMigrator.migrate(
-                    saveAndVerifyKey: { try KeychainStore.migrateLegacyAPIKey(to: initialID) },
-                    persistProfiles: { self.persistProfiles() },
-                    removeLegacyKey: { try KeychainStore.removeLegacyAPIKey() }
-                )
-                apiKey = migratedKey
-                savedAPIKey = migratedKey
-            } catch {
-                statusMessage = "旧配置暂未迁移，将在下次启动重试：\(error.localizedDescription)"
-            }
+        if migratedLegacy, !persistProfiles() {
+            statusMessage = "旧端点配置暂未持久化；API Key 尚未读取"
         }
         if automaticUpdateChecks && scheduleAutomaticUpdateCheck {
             Task { [weak self] in
@@ -154,7 +171,10 @@ final class AppModel: ObservableObject {
         return draftProfile
     }
     var hasUnsavedProfileChanges: Bool {
-        draftProfile != profiles.first(where: { $0.id == selectedProfileID }) || apiKey != savedAPIKey
+        let credentialChanged = credentialLoaded
+            ? apiKey != savedAPIKey
+            : !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return draftProfile != profiles.first(where: { $0.id == selectedProfileID }) || credentialChanged
     }
     var currentVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
@@ -173,18 +193,61 @@ final class AppModel: ObservableObject {
         cancelEndpointOperations()
         selectedProfileID = id
         draftProfile = profile
-        apiKey = KeychainStore.loadAPIKey(for: id)
-        savedAPIKey = apiKey
+        resetCredentialField(for: id)
         defaults.set(id.uuidString, forKey: Self.selectedProfileKey)
-        statusMessage = "已切换到 \(profile.displayName)"
+        statusMessage = credentialMayExist
+            ? "已切换到 \(profile.displayName)；Key 尚未读取"
+            : "已切换到 \(profile.displayName)"
     }
 
     func discardSelectedProfileChanges() {
         guard let profile = profiles.first(where: { $0.id == selectedProfileID }) else { return }
         cancelEndpointOperations()
         draftProfile = profile
-        apiKey = savedAPIKey
+        if credentialLoaded {
+            apiKey = savedAPIKey
+        } else {
+            apiKey = ""
+        }
         statusMessage = "已放弃未保存的更改"
+    }
+
+    func loadSelectedCredential() {
+        do {
+            let key = try credentialStore.loadForUserAction(
+                selectedProfileID,
+                legacyProfileCredentialID == selectedProfileID
+            )
+            apiKey = key
+            savedAPIKey = key
+            credentialLoaded = true
+            credentialMayExist = !key.isEmpty
+            refreshCredentialMigrationState()
+            markCredentialMigrationCompleteIfNoLegacyItemsRemain()
+            statusMessage = key.isEmpty ? "当前端点没有已保存的 API Key" : "API Key 已加载"
+        } catch {
+            statusMessage = "无法读取 API Key：\(error.localizedDescription)"
+        }
+    }
+
+    func migrateSavedCredentials() {
+        do {
+            let report = try credentialStore.migrate(profiles.map(\.id), legacyProfileCredentialID)
+            if report.unresolvedProfileCount == 0 {
+                legacyProfileCredentialID = nil
+                defaults.removeObject(forKey: Self.legacyCredentialProfileKey)
+                defaults.set(true, forKey: Self.credentialMigrationCompleteKey)
+            }
+            refreshCredentialMigrationState()
+            resetCredentialField(for: selectedProfileID)
+            if report.unresolvedProfileCount == 0 {
+                statusMessage = "旧凭据迁移完成：\(report.migratedProfileCount + (report.migratedLegacyKey ? 1 : 0)) 个 Key 已写入统一凭据仓库"
+            } else {
+                statusMessage = "已迁移部分凭据；\(report.unresolvedProfileCount) 个旧 Key 未获授权并保持原状"
+            }
+        } catch {
+            statusMessage = "旧凭据迁移失败，原数据未删除：\(error.localizedDescription)"
+        }
     }
 
     func addProfile() {
@@ -224,7 +287,7 @@ final class AppModel: ObservableObject {
         }
         let removed = profiles[index]
         do {
-            try KeychainStore.removeAPIKey(for: removed.id)
+            try credentialStore.remove(removed.id)
         } catch {
             statusMessage = "无法删除端点 Keychain 凭据：\(error.localizedDescription)"
             return
@@ -264,7 +327,7 @@ final class AppModel: ObservableObject {
             let previous = profiles[index]
             let endpointChanged = previous.provider != draftProfile.provider
                 || previous.baseURL != draftProfile.baseURL
-                || savedAPIKey != apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+                || (credentialLoaded && savedAPIKey != apiKey.trimmingCharacters(in: .whitespacesAndNewlines))
             if endpointChanged {
                 for modelIndex in draftProfile.models.indices {
                     draftProfile.models[modelIndex].isVerified = false
@@ -276,11 +339,22 @@ final class AppModel: ObservableObject {
                     draftProfile.models[modelIndex].isVerified = false
                 }
             }
+            let normalizedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            let shouldWriteCredential = credentialLoaded || !normalizedKey.isEmpty
+            if shouldWriteCredential {
+                try credentialStore.save(normalizedKey, selectedProfileID)
+            }
             profiles[index] = draftProfile
-            persistProfiles()
-            try KeychainStore.saveAPIKey(apiKey.trimmingCharacters(in: .whitespacesAndNewlines), for: selectedProfileID)
-            savedAPIKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-            apiKey = savedAPIKey
+            guard persistProfiles() else {
+                throw KeychainMigrationError.profilePersistenceFailed
+            }
+            if shouldWriteCredential {
+                savedAPIKey = normalizedKey
+                apiKey = normalizedKey
+                credentialLoaded = true
+                credentialMayExist = !normalizedKey.isEmpty
+                refreshCredentialMigrationState()
+            }
             statusMessage = "端点“\(name)”已安全保存"
             return true
         } catch {
@@ -303,7 +377,17 @@ final class AppModel: ObservableObject {
             statusMessage = "Azure 旧版 deployment 模式请手动添加 deployment ID"
             return
         }
-        let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let key: String
+        do {
+            key = try credentialForUserAction(profileID: selectedProfileID)
+        } catch {
+            statusMessage = "无法读取 API Key：\(error.localizedDescription)"
+            return
+        }
+        guard !key.isEmpty else {
+            statusMessage = "请填写或加载当前端点的 API Key"
+            return
+        }
         let profile = draftProfile
         cancelEndpointOperations()
         let operationToken = UUID()
@@ -367,7 +451,17 @@ final class AppModel: ObservableObject {
             return
         }
         let profile = draftProfile
-        let key = apiKey
+        let key: String
+        do {
+            key = try credentialForUserAction(profileID: selectedProfileID)
+        } catch {
+            statusMessage = "无法读取 API Key：\(error.localizedDescription)"
+            return
+        }
+        guard !key.isEmpty else {
+            statusMessage = "请填写或加载当前端点的 API Key"
+            return
+        }
         cancelEndpointOperations()
         let operationToken = UUID()
         endpointOperationToken = operationToken
@@ -479,7 +573,9 @@ final class AppModel: ObservableObject {
         }
         guard saveSelectedProfile() else { return }
         do {
-            let keys = Dictionary(uniqueKeysWithValues: profiles.map { ($0.id, KeychainStore.loadAPIKey(for: $0.id)) })
+            let keys = try Dictionary(uniqueKeysWithValues: profiles.map {
+                ($0.id, try credentialForUserAction(profileID: $0.id))
+            })
             let configURL = try OpenCodeIntegration.generateConfiguration(profiles: profiles, apiKeys: keys)
             if launch {
                 try OpenCodeIntegration.launch(configURL: configURL)
@@ -637,8 +733,15 @@ final class AppModel: ObservableObject {
             return
         }
 
-        let openAIKey = openAIProfile.map { KeychainStore.loadAPIKey(for: $0.id) }
-        let anthropicKey = anthropicProfile.map { KeychainStore.loadAPIKey(for: $0.id) }
+        let openAIKey: String?
+        let anthropicKey: String?
+        do {
+            openAIKey = try openAIProfile.map { try credentialForUserAction(profileID: $0.id) }
+            anthropicKey = try anthropicProfile.map { try credentialForUserAction(profileID: $0.id) }
+        } catch {
+            statusMessage = "无法读取 Cursor Endpoint API Key：\(error.localizedDescription)"
+            return
+        }
         if openAIProfile != nil, openAIKey?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
             statusMessage = "所选 OpenAI Compatible Endpoint 没有可用 API Key"
             return
@@ -855,7 +958,13 @@ final class AppModel: ObservableObject {
             statusMessage = "请选择一个含可用模型的 OpenAI Compatible Endpoint"
             return
         }
-        let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let key: String
+        do {
+            key = try credentialForUserAction(profileID: selectedProfileID)
+        } catch {
+            statusMessage = "无法读取 API Key：\(error.localizedDescription)"
+            return
+        }
         guard !key.isEmpty else {
             statusMessage = "当前 Endpoint 没有可复制的 API Key"
             return
@@ -931,7 +1040,7 @@ final class AppModel: ObservableObject {
             }
         }
         attempt("Bridge 证书与信任", { try BridgeCertificateManager.removeAll() })
-        attempt("钥匙串凭据", { try KeychainStore.removeAll() })
+        attempt("钥匙串凭据", { try credentialStore.removeAll() })
         attempt("OpenCode 配置", { try OpenCodeIntegration.removeGeneratedFiles() })
         attempt("Cursor 回滚文件", { try CursorConfiguration.removeBackups() })
         guard failures.isEmpty else {
@@ -945,12 +1054,18 @@ final class AppModel: ObservableObject {
         defaults.removeObject(forKey: Self.lastUpdateCheckKey)
         defaults.removeObject(forKey: Self.lastUpdateOutcomeKey)
         defaults.removeObject(forKey: Self.lastCheckedAppVersionKey)
+        defaults.removeObject(forKey: Self.credentialMigrationCompleteKey)
+        defaults.removeObject(forKey: Self.legacyCredentialProfileKey)
         let profile = GatewayProfile()
         profiles = [profile]
         selectedProfileID = profile.id
         draftProfile = profile
         apiKey = ""
         savedAPIKey = ""
+        credentialLoaded = false
+        credentialMayExist = false
+        credentialMigrationAvailable = false
+        legacyProfileCredentialID = nil
         events.removeAll()
         if persistProfiles() {
             statusMessage = "RelayDock 端点、OpenCode 配置和钥匙串凭据已清除"
@@ -985,6 +1100,47 @@ final class AppModel: ObservableObject {
         } else {
             defaults.removeObject(forKey: key)
         }
+    }
+
+    private func resetCredentialField(for profileID: UUID) {
+        apiKey = ""
+        savedAPIKey = ""
+        credentialLoaded = false
+        credentialMayExist = credentialStore.presence(
+            profileID,
+            legacyProfileCredentialID == profileID
+        ).mayExist
+    }
+
+    private func refreshCredentialMigrationState() {
+        credentialMigrationAvailable = !defaults.bool(forKey: Self.credentialMigrationCompleteKey)
+            && credentialStore.migrationNeeded(profiles.map(\.id), legacyProfileCredentialID != nil)
+    }
+
+    private func credentialForUserAction(profileID: UUID) throws -> String {
+        if profileID == selectedProfileID, credentialLoaded {
+            return apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let key = try credentialStore.loadForUserAction(
+            profileID,
+            legacyProfileCredentialID == profileID
+        )
+        if profileID == selectedProfileID {
+            apiKey = key
+            savedAPIKey = key
+            credentialLoaded = true
+            credentialMayExist = !key.isEmpty
+        }
+        refreshCredentialMigrationState()
+        markCredentialMigrationCompleteIfNoLegacyItemsRemain()
+        return key
+    }
+
+    private func markCredentialMigrationCompleteIfNoLegacyItemsRemain() {
+        guard !credentialMigrationAvailable else { return }
+        legacyProfileCredentialID = nil
+        defaults.removeObject(forKey: Self.legacyCredentialProfileKey)
+        defaults.set(true, forKey: Self.credentialMigrationCompleteKey)
     }
 
     private static func validCursorOpenAIProfiles(_ profiles: [GatewayProfile]) -> [GatewayProfile] {

@@ -131,6 +131,27 @@ struct ContentView: View {
                         .buttonStyle(.bordered)
                 }
 
+                if model.credentialMigrationAvailable {
+                    HStack(alignment: .center, spacing: 12) {
+                        Image(systemName: "key.horizontal.fill")
+                            .foregroundStyle(.orange)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("发现旧版 Keychain 凭据").fontWeight(.semibold)
+                            Text("RelayDock 启动时不会读取它们。点击迁移后，macOS 可能要求你对旧凭据授权；验证成功前不会删除原数据。")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("一次性迁移", action: model.migrateSavedCredentials)
+                            .buttonStyle(.borderedProminent)
+                    }
+                    .padding(12)
+                    .background(Color.orange.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(Color.orange.opacity(0.22), lineWidth: 1)
+                    )
+                }
+
                 HStack(alignment: .top, spacing: 20) {
                     VStack(spacing: 7) {
                         ForEach(model.profiles) { profile in
@@ -242,7 +263,22 @@ struct ContentView: View {
                 }
             }
             formRow("API Key") {
-                SecureField("安全保存到 macOS Keychain", text: $model.apiKey)
+                HStack(spacing: 8) {
+                    SecureField(
+                        model.credentialMayExist && !model.credentialLoaded
+                            ? "已保存；点击加载或直接输入新 Key"
+                            : "安全保存到 macOS Keychain",
+                        text: $model.apiKey
+                    )
+                    if model.credentialMayExist && !model.credentialLoaded {
+                        Button("加载", action: model.loadSelectedCredential)
+                            .buttonStyle(.bordered)
+                    }
+                }
+            }
+            if model.credentialMayExist && !model.credentialLoaded {
+                Text("为避免更新后突然弹出 Keychain 验证，已保存的 Key 不会在启动或切换 Endpoint 时自动读取。")
+                    .font(.caption2).foregroundStyle(.secondary)
             }
             if let preset = EndpointPreset.matching(model.draftProfile) {
                 Label(preset.credentialHelp, systemImage: "key.fill")

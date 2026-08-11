@@ -18,7 +18,7 @@
 </head>
 <body>
   <h1>Install RelayDock</h1>
-  <p class="subtle">RelayDock 0.5.0 · Verified models and one-click OpenCode/Cursor setup</p>
+  <p class="subtle">RelayDock 0.5.1 · Keychain and installation-signature continuity</p>
 
   <div class="card">
     <strong>Easiest: paste one command</strong>
@@ -28,7 +28,9 @@
   </div>
 
   <p class="note"><strong>Security scope:</strong> The app installer does not disable Gatekeeper globally, install a trusted root CA, or change the system proxy. For this unsigned test build, it removes quarantine only from the installed RelayDock copy and creates a stable RelayDock-only signing identity in <code>~/Library/Keychains/RelayDockLocalSigning.keychain-db</code>. No TLS trust is added during app installation. If you later select an Anthropic endpoint for Cursor, RelayDock separately asks macOS to trust one <code>CA:FALSE</code> leaf whose SAN is only <code>api.anthropic.com</code>. The uninstaller removes both identities and that trust.</p>
-  <p><strong>Upgrading from an older build:</strong> older releases used a changing ad-hoc signature. RelayDock now suppresses interactive Keychain authorization prompts. If an old endpoint key cannot be read after the signature change, it appears empty and must be entered once more. Releases installed with the stable local identity preserve access afterward without password prompts.</p>
+  <p><strong>Upgrading from an older build:</strong> RelayDock never reads Keychain secret bytes at launch or when switching endpoints, so no password dialog should appear unexpectedly. When old per-endpoint items are found, the UI offers <strong>Migrate once</strong>. macOS may request access only after you choose it. RelayDock writes and verifies the unified credential vault before cleaning old items.</p>
+  <p><strong>Signature continuity:</strong> the one-line script, ZIP, DMG, and in-app updater share one transactional installer. It compares the designated requirement before replacement and verifies version, signature, and requirement afterward; failure restores the previous app. A damaged local signing identity is never rotated silently: repair requires separate confirmation and preserves the old material in a Recovery directory.</p>
+  <p><strong>Do not replace the app manually:</strong> the raw app payload is kept inside hidden <code>.payload</code>, and the DMG no longer offers an Applications drag target. Use the installer so requirement checks and rollback cannot be bypassed.</p>
 
   <div class="card">
     <strong>Offline fallback: install from this disk image</strong>
@@ -41,7 +43,7 @@
     </ol>
   </div>
 
-  <p><strong>Offline installation note:</strong> Do not double-click the script, and do not run the dragged path by itself. The command must begin with <code>/bin/zsh</code>. It should look similar to:<br><code>/bin/zsh "/Volumes/RelayDock 0.5.0/Install RelayDock.command"</code></p>
+  <p><strong>Offline installation note:</strong> Do not double-click the script, and do not run the dragged path by itself. The command must begin with <code>/bin/zsh</code>. It should look similar to:<br><code>/bin/zsh "/Volumes/RelayDock 0.5.1/Install RelayDock.command"</code></p>
 
   <h2>Why not double-click?</h2>
   <p>This personal test build does not yet have an Apple Developer ID or notarization ticket. Double-clicking it triggers Gatekeeper's “cannot verify” warning. The installer applies the local signature, so you do not need to run <code>codesign</code> yourself. The drag-to-Terminal method also works when macOS mounts the image with a numeric suffix.</p>

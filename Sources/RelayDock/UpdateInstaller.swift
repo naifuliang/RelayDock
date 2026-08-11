@@ -21,12 +21,14 @@ enum UpdateInstaller {
         guard isSafeVersion(expectedVersion) else { throw UpdateInstallError.invalidVersion }
         let mountPoint = try mount(dmgURL: dmgURL)
         do {
-            let sourceApp = mountPoint.appendingPathComponent("RelayDock.app", isDirectory: true)
+            let sourceApp = mountPoint.appendingPathComponent(".payload/RelayDock.app", isDirectory: true)
             let installer = mountPoint.appendingPathComponent("Install RelayDock.command")
             let signingHelper = mountPoint.appendingPathComponent("local-sign-relaydock.sh")
+            let identityPolicy = mountPoint.appendingPathComponent("verify-signing-transition.sh")
             guard FileManager.default.fileExists(atPath: sourceApp.path),
                   FileManager.default.isExecutableFile(atPath: installer.path),
-                  FileManager.default.isExecutableFile(atPath: signingHelper.path) else {
+                  FileManager.default.isExecutableFile(atPath: signingHelper.path),
+                  FileManager.default.isExecutableFile(atPath: identityPolicy.path) else {
                 throw UpdateInstallError.invalidImageContents
             }
             guard try appVersion(at: sourceApp) == expectedVersion else {
@@ -78,7 +80,7 @@ enum UpdateInstaller {
         }
         trap cleanup EXIT
 
-        RELAYDOCK_INSTALL_DIR=\(shellQuote(installDirectory.path)) RELAYDOCK_OPEN_APP=0 /bin/zsh \(shellQuote(installerURL.path))
+        RELAYDOCK_INSTALL_DIR=\(shellQuote(installDirectory.path)) RELAYDOCK_OPEN_APP=0 RELAYDOCK_INSTALL_CONFIRM=1 RELAYDOCK_EXPECTED_VERSION=\(shellQuote(expectedVersion)) /bin/zsh \(shellQuote(installerURL.path))
         INSTALLED_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \(shellQuote(targetAppURL.appendingPathComponent("Contents/Info.plist").path)))"
         if [[ "$INSTALLED_VERSION" != \(shellQuote(expectedVersion)) ]]; then
             echo \(shellQuote("Update verification failed: expected \(expectedVersion)."))

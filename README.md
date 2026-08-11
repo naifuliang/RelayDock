@@ -22,7 +22,14 @@ The icon is hand-drawn from deterministic vector geometry. Edit
 `Assets/AppIcon.svg` or the matching dimensions in `scripts/render-icon.swift`;
 `scripts/build-icon.sh` renders the PNG and ICNS assets.
 
-Version 0.5.0 adds verified-model imports and real one-click tool setup.
+Version 0.5.1 makes credential and signing continuity explicit. App launch and
+endpoint switching never read Keychain secret bytes; older per-endpoint items
+are migrated only after the user chooses **Migrate once**, into one verified
+RelayDock credential vault. The one-line installer, ZIP, DMG, and in-app update
+all use the same transactional installer and refuse an unexpected designated-
+requirement change before replacing the existing app.
+
+Version 0.5.0 added verified-model imports and real one-click tool setup.
 OpenCode receives an isolated multi-endpoint configuration. Cursor receives its
 OpenAI-compatible Base URL/key directly; its Anthropic key is paired with a
 loopback TLS bridge restricted to `api.anthropic.com`. Cursor configuration is
@@ -40,7 +47,8 @@ does not complete.
 - One-click verification of every enabled model with per-model results;
   definitively unsupported models are removed, while auth/rate-limit/network
   failures are retained for correction.
-- Multiple selectable model IDs and a separate Keychain API key per endpoint.
+- Multiple selectable model IDs with endpoint keys held in one RelayDock
+  Keychain vault. The ordinary endpoint configuration never serializes keys.
 - One-click generation of an isolated OpenCode configuration through the
   official `OPENCODE_CONFIG` mechanism. Existing global config is not replaced.
 - OpenCode keys are exported only to RelayDock-owned files with mode `0600` and
@@ -100,22 +108,25 @@ launches it. These checks are not a substitute for Apple notarization. It does
 not disable Gatekeeper globally, install a root CA, or change the
 system proxy. For this unsigned test build, it removes quarantine only from the
 installed RelayDock copy and signs it with a stable RelayDock-only identity stored
-in `~/Library/Keychains/RelayDockLocalSigning.keychain-db`. This keychain is
-added only to the user's Keychain search list so macOS can resolve the signing
-certificate; no TLS trust is added during app installation. If the user later
+in `~/Library/Keychains/RelayDockLocalSigning.keychain-db`. The installer names
+this keychain explicitly when signing; it is not added to the user's general
+Keychain search list and no TLS trust is added during app installation. If the user later
 enables the Anthropic Bridge, RelayDock separately asks macOS to trust one
 `CA:FALSE` leaf for `api.anthropic.com`. The uninstaller removes that trust,
-certificate/private key, signing keychain, and search-list entry.
+certificate/private key and signing keychain. It also cleans an old search-list
+entry left by earlier releases.
 
-The first upgrade from an older ad-hoc-signed build changes the app's designated
-requirement. RelayDock deliberately refuses interactive Keychain authorization
-prompts, so an inaccessible older endpoint key is shown as empty and must be
-entered again. Releases installed with the stable local identity preserve access
-after that migration without password prompts.
+RelayDock never reads API Key bytes at startup or when switching endpoints.
+When older per-endpoint Keychain items exist, the app offers an explicit
+one-time migration. macOS may request authorization for those old items only
+after the user starts that migration; RelayDock writes and verifies the unified
+vault before attempting non-interactive cleanup. A damaged local signing
+identity is never silently rotated: the installer stops, preserves it in a
+recovery directory, and offers a separately confirmed repair path.
 
 ### Build or install from the DMG
 
-Create a drag-to-install DMG and the one-line installer archive:
+Create a guided-installer DMG and the one-line installer archive:
 
 ```bash
 ./scripts/package-release.sh
@@ -134,7 +145,8 @@ The DMG contains:
   step-by-step install, Cursor Bridge, and OpenCode guides.
 - `Install RelayDock.command`, which copies the app to `/Applications`, removes
   the quarantine attribute from that local copy, and applies a stable local
-  RelayDock-only signature.
+  RelayDock-only signature. The ZIP and application updater invoke this same
+  installer rather than maintaining separate replacement logic.
 - `Uninstall RelayDock.command`, which removes the app, RelayDock preferences,
   all endpoint API keys, generated configuration, the Anthropic Bridge
   certificate/private key/trust, and the private signing keychain.
@@ -146,16 +158,26 @@ is required; executing the `.command` path itself can still be blocked by
 Gatekeeper. The drag step also avoids hard-coding a volume name that macOS may
 suffix when the DMG is mounted more than once.
 
-Local builds are ad-hoc app signed. A PKG is emitted only when both Developer ID
-Application and Developer ID Installer identities are supplied; unsigned PKGs
-are intentionally not produced because their post-install re-signing would not
-preserve Keychain access across updates:
+Do not copy a raw `RelayDock.app` out of an archive or an older build over the
+installed app. Unsigned payloads are intentionally kept inside `.payload` so
+every supported installation path performs the same requirement comparison,
+post-install verification, and rollback.
+
+Local builds are ad-hoc app signed. PKG output is intentionally unsupported:
+component packages replace the application outside RelayDock's transactional
+installer and cannot provide the same preflight identity check and rollback.
+Use the DMG, ZIP, one-line installer, or in-app updater for every installation.
+
+A future Developer ID build can be created with:
 
 ```bash
 RELAYDOCK_APP_SIGN_IDENTITY="Developer ID Application: Example" \
-RELAYDOCK_INSTALLER_SIGN_IDENTITY="Developer ID Installer: Example" \
 ./scripts/package-release.sh
 ```
+
+On the first local-signature to Developer ID update, the installer displays the
+incoming Team ID and requires the user to type it. RelayDock records that exact
+Team ID and bundle identifier; all later updates must match it.
 
 Public distribution without Gatekeeper warnings additionally requires Apple
 Developer ID certificates and notarization.
@@ -194,7 +216,9 @@ documented recommended model aliases as a fallback when catalog discovery is
 unavailable; **Sync Models** still replaces them with the returned catalog when
 the provider exposes one.
 
-RelayDock writes the key to macOS Keychain only when the endpoint is saved.
+RelayDock writes keys to one macOS Keychain vault only when an endpoint is
+saved or the user explicitly migrates an old credential. Launch and endpoint
+selection do not read secret bytes.
 
 ## Cursor one-click workflow
 

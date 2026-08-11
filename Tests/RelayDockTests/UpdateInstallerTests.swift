@@ -31,7 +31,7 @@ final class UpdateInstallerTests: XCTestCase {
         )
         defer { UpdateInstaller.discard(prepared) }
         XCTAssertTrue(FileManager.default.isExecutableFile(atPath: prepared.launcherURL.path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: prepared.mountPoint.appendingPathComponent("RelayDock.app").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: prepared.mountPoint.appendingPathComponent(".payload/RelayDock.app").path))
     }
 
     func testParsesMountPointFromHDIUtilPlist() throws {
@@ -68,6 +68,8 @@ final class UpdateInstallerTests: XCTestCase {
         )
         XCTAssertTrue(script.contains("RELAYDOCK_INSTALL_DIR='/Applications'"))
         XCTAssertTrue(script.contains("RELAYDOCK_OPEN_APP=0"))
+        XCTAssertTrue(script.contains("RELAYDOCK_INSTALL_CONFIRM=1"))
+        XCTAssertTrue(script.contains("RELAYDOCK_EXPECTED_VERSION='0.3.1'"))
         XCTAssertTrue(script.contains("/usr/libexec/PlistBuddy"))
         XCTAssertTrue(script.contains("hdiutil detach '/Volumes/RelayDock 0.3.1'"))
         XCTAssertTrue(script.contains("pkill -x RelayDock"))
