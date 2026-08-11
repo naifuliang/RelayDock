@@ -18,7 +18,7 @@
 </head>
 <body>
   <h1>安装 RelayDock</h1>
-  <p class="subtle">RelayDock 0.5.1 · Keychain 与安装签名连续性修复</p>
+  <p class="subtle">RelayDock 0.5.2 · Bridge 信任与一键更新兼容修复</p>
 
   <div class="card">
     <strong>最简单：复制一条命令</strong>
@@ -43,7 +43,7 @@
     </ol>
   </div>
 
-  <p><strong>离线安装注意：</strong>不要直接双击脚本，也不要只把脚本拖到终端后运行。命令最前面必须有 <code>/bin/zsh</code>。完整命令看起来类似：<br><code>/bin/zsh "/Volumes/RelayDock 0.5.1/Install RelayDock.command"</code></p>
+  <p><strong>离线安装注意：</strong>不要直接双击脚本，也不要只把脚本拖到终端后运行。命令最前面必须有 <code>/bin/zsh</code>。完整命令看起来类似：<br><code>/bin/zsh "/Volumes/RelayDock 0.5.2/Install RelayDock.command"</code></p>
 
   <h2>为什么不能直接双击？</h2>
   <p>当前个人测试包还没有 Apple Developer ID 与公证票据。直接双击会触发“无法验证是否包含恶意软件”的 Gatekeeper 提示。安装脚本会完成本地签名，用户无需手动运行 <code>codesign</code>。上面的拖拽方式不依赖固定卷名，即使系统给磁盘映像添加数字后缀也能正确运行。</p>

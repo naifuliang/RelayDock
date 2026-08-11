@@ -51,6 +51,71 @@ final class BridgeCertificateManagerTests: XCTestCase {
         ))
     }
 
+    func testTrustInstallationUsesRootResultScopedToAnthropicSSLHostAndLoginKeychain() {
+        let certificateURL = URL(fileURLWithPath: "/tmp/relaydock-test.pem")
+        let arguments = BridgeCertificateManager.trustInstallationArguments(
+            certificateURL: certificateURL,
+            keychainPath: "/Users/test/Library/Keychains/login.keychain-db"
+        )
+
+        XCTAssertEqual(arguments, [
+            "add-trusted-cert", "-r", "trustRoot", "-p", "ssl", "-s", "api.anthropic.com",
+            "-k", "/Users/test/Library/Keychains/login.keychain-db", certificateURL.path
+        ])
+        XCTAssertFalse(arguments.contains("trustAsRoot"))
+    }
+
+    func testFailedPostInstallVerificationRollsBackTrust() {
+        var rolledBack = false
+
+        XCTAssertThrowsError(try BridgeCertificateManager.requireTrustedAfterInstallation(
+            verification: { false },
+            rollback: { rolledBack = true }
+        )) { error in
+            guard case BridgeCertificateError.trustVerificationFailed = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+        }
+        XCTAssertTrue(rolledBack)
+    }
+
+    func testPostInstallRollbackFailureReportsBothErrors() {
+        struct RollbackFailure: LocalizedError {
+            var errorDescription: String? { "rollback failed" }
+        }
+
+        XCTAssertThrowsError(try BridgeCertificateManager.requireTrustedAfterInstallation(
+            verification: { false },
+            rollback: { throw RollbackFailure() }
+        )) { error in
+            XCTAssertTrue(error.localizedDescription.contains("证书信任验证失败"))
+            XCTAssertTrue(error.localizedDescription.contains("rollback failed"))
+        }
+    }
+
+    func testCertificateSearchUsesExplicitDefaultKeychain() {
+        XCTAssertEqual(
+            BridgeCertificateManager.certificateSearchArguments(
+                keychainPath: "/Users/test/Library/Keychains/login.keychain-db"
+            ),
+            [
+                "find-certificate", "-a", "-c", "RelayDock Anthropic Bridge", "-p",
+                "/Users/test/Library/Keychains/login.keychain-db"
+            ]
+        )
+    }
+
+    func testParsesQuotedDefaultKeychainPathAndRejectsInvalidOutput() {
+        XCTAssertEqual(
+            BridgeCertificateManager.keychainPath(
+                fromDefaultKeychainOutput: "    \"/Users/test/Library/Keychains/login.keychain-db\"\n"
+            ),
+            "/Users/test/Library/Keychains/login.keychain-db"
+        )
+        XCTAssertNil(BridgeCertificateManager.keychainPath(fromDefaultKeychainOutput: "login.keychain-db"))
+        XCTAssertNil(BridgeCertificateManager.keychainPath(fromDefaultKeychainOutput: ""))
+    }
+
     func testGeneratedCertificateIsDomainScopedNonCAAndStable() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("RelayDockCertificateTests-\(UUID().uuidString)", isDirectory: true)

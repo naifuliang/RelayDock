@@ -22,6 +22,13 @@ The icon is hand-drawn from deterministic vector geometry. Edit
 `Assets/AppIcon.svg` or the matching dimensions in `scripts/render-icon.swift`;
 `scripts/build-icon.sh` renders the PNG and ICNS assets.
 
+Version 0.5.2 fixes one-click Anthropic Bridge trust installation on current
+macOS releases. The app now installs its self-signed, `CA:FALSE` leaf with the
+correct `trustRoot` result, scoped only to SSL for `api.anthropic.com`, verifies
+the postcondition, and rolls back if verification fails. Its DMG also includes
+a non-copy compatibility link so RelayDock 0.5.0 can preflight the hidden
+payload and hand off the actual update to the transactional installer.
+
 Version 0.5.1 makes credential and signing continuity explicit. App launch and
 endpoint switching never read Keychain secret bytes; older per-endpoint items
 are migrated only after the user chooses **Migrate once**, into one verified

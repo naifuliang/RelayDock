@@ -178,7 +178,7 @@ else
         echo "RelayDock's previous local signing identity is incomplete or unusable."
         echo "Repair keeps the damaged material in RelayDock/Signing/Recovery and"
         echo "creates a new identity. Existing API keys remain in the login Keychain;"
-        echo "RelayDock 0.5.1 will offer an explicit one-time credential migration."
+        echo "RelayDock will offer an explicit one-time credential migration."
         if ! REPAIR_REPLY="$(read_terminal_response "Repair the signing identity and continue? [y/N] ")"; then
             exit 5
         fi

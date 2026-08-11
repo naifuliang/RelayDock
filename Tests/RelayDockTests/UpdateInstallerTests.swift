@@ -32,6 +32,31 @@ final class UpdateInstallerTests: XCTestCase {
         defer { UpdateInstaller.discard(prepared) }
         XCTAssertTrue(FileManager.default.isExecutableFile(atPath: prepared.launcherURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: prepared.mountPoint.appendingPathComponent(".payload/RelayDock.app").path))
+        let legacyApp = prepared.mountPoint.appendingPathComponent("RelayDock.app")
+        XCTAssertEqual(
+            try FileManager.default.destinationOfSymbolicLink(atPath: legacyApp.path),
+            ".payload/RelayDock.app"
+        )
+        XCTAssertEqual(try legacyApp.resourceValues(forKeys: [.isHiddenKey]).isHidden, true)
+        XCTAssertEqual(try appVersion(at: legacyApp), expectedVersion)
+        XCTAssertEqual(try codesignStatus(for: legacyApp), 0)
+    }
+
+    private func appVersion(at appURL: URL) throws -> String? {
+        let data = try Data(contentsOf: appURL.appendingPathComponent("Contents/Info.plist"))
+        let plist = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+        return plist?["CFBundleShortVersionString"] as? String
+    }
+
+    private func codesignStatus(for appURL: URL) throws -> Int32 {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        process.arguments = ["--verify", "--deep", "--strict", appURL.path]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        return process.terminationStatus
     }
 
     func testParsesMountPointFromHDIUtilPlist() throws {

@@ -130,15 +130,51 @@ enum BridgeCertificateManager {
     static func installTrust(directory: URL = directory) throws -> BridgeCertificateMaterial {
         let material = try ensureMaterial(directory: directory)
         if try isTrusted(material) { return material }
+        let keychainPath = try defaultUserKeychainPath()
         _ = try run(
             "/usr/bin/security",
-            arguments: [
-                "add-trusted-cert", "-r", "trustAsRoot", "-p", "ssl", "-s", hostname,
-                material.certificateURL.path
-            ]
+            arguments: trustInstallationArguments(
+                certificateURL: material.certificateURL,
+                keychainPath: keychainPath
+            )
         )
-        guard try isTrusted(material) else { throw BridgeCertificateError.trustVerificationFailed }
+        try requireTrustedAfterInstallation(
+            verification: { try isTrusted(material) },
+            rollback: { try removeTrust(directory: directory) }
+        )
         return material
+    }
+
+    static func requireTrustedAfterInstallation(
+        verification: () throws -> Bool,
+        rollback: () throws -> Void
+    ) throws {
+        do {
+            guard try verification() else {
+                throw BridgeCertificateError.trustVerificationFailed
+            }
+        } catch {
+            let verificationError = error
+            do {
+                try rollback()
+            } catch {
+                throw BridgeCertificateError.trustInstallationRollbackFailed(
+                    verification: verificationError.localizedDescription,
+                    rollback: error.localizedDescription
+                )
+            }
+            throw verificationError
+        }
+    }
+
+    static func trustInstallationArguments(
+        certificateURL: URL,
+        keychainPath: String
+    ) -> [String] {
+        [
+            "add-trusted-cert", "-r", "trustRoot", "-p", "ssl", "-s", hostname,
+            "-k", keychainPath, certificateURL.path
+        ]
     }
 
     static func isTrusted(_ material: BridgeCertificateMaterial) throws -> Bool {
@@ -206,9 +242,10 @@ enum BridgeCertificateManager {
         if let installed = try? Data(contentsOf: installedCertificateURL) {
             candidates.append(installed)
         }
+        let keychainPath = try defaultUserKeychainPath()
         let result = try run(
             "/usr/bin/security",
-            arguments: ["find-certificate", "-a", "-c", commonName, "-p"],
+            arguments: certificateSearchArguments(keychainPath: keychainPath),
             allowFailure: true
         )
         guard result.status == 0 else {
@@ -217,6 +254,33 @@ enum BridgeCertificateManager {
         candidates.append(contentsOf: pemCertificates(from: result.output))
         var seen = Set<Data>()
         return candidates.filter { seen.insert($0).inserted }
+    }
+
+    static func certificateSearchArguments(keychainPath: String) -> [String] {
+        ["find-certificate", "-a", "-c", commonName, "-p", keychainPath]
+    }
+
+    static func keychainPath(fromDefaultKeychainOutput output: String) -> String? {
+        var path = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        if path.hasPrefix("\"") && path.hasSuffix("\"") && path.count >= 2 {
+            path.removeFirst()
+            path.removeLast()
+        }
+        guard path.hasPrefix("/"), !path.contains("\n"), !path.contains("\r") else {
+            return nil
+        }
+        return path
+    }
+
+    private static func defaultUserKeychainPath() throws -> String {
+        let result = try run(
+            "/usr/bin/security",
+            arguments: ["default-keychain", "-d", "user"]
+        )
+        guard let path = keychainPath(fromDefaultKeychainOutput: result.output) else {
+            throw BridgeCertificateError.defaultKeychainUnavailable
+        }
+        return path
     }
 
     static func removeAll(directory: URL = directory) throws {
@@ -265,6 +329,8 @@ enum BridgeCertificateError: LocalizedError {
     case generationFailed
     case trustVerificationFailed
     case trustRemovalFailed
+    case defaultKeychainUnavailable
+    case trustInstallationRollbackFailed(verification: String, rollback: String)
     case commandFailed(String)
 
     var errorDescription: String? {
@@ -277,6 +343,10 @@ enum BridgeCertificateError: LocalizedError {
             return "证书授权完成后未能通过 api.anthropic.com SSL 信任验证。"
         case .trustRemovalFailed:
             return "系统仍信任 Anthropic Bridge 证书，RelayDock 已保留证书材料以便重试卸载。"
+        case .defaultKeychainUnavailable:
+            return "无法确定当前用户的默认登录 Keychain；证书信任设置未更改。"
+        case let .trustInstallationRollbackFailed(verification, rollback):
+            return "证书信任验证失败，且自动撤销未完成：\(verification)；撤销错误：\(rollback)"
         case let .commandFailed(message):
             return message.isEmpty ? "证书系统命令执行失败。" : "证书系统命令失败：\(message)"
         }
