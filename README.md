@@ -22,6 +22,14 @@ The icon is hand-drawn from deterministic vector geometry. Edit
 `Assets/AppIcon.svg` or the matching dimensions in `scripts/render-icon.swift`;
 `scripts/build-icon.sh` renders the PNG and ICNS assets.
 
+Version 0.5.4 routes Cursor's Node-based AI traffic through a dedicated local
+Bridge in addition to Chromium's proxy path. Its Node-only TLS issuer is passed
+only to the Cursor process through `NODE_EXTRA_CA_CERTS`, is never installed in
+the system Keychain, is name-constrained to `api.anthropic.com`, and has its
+signing private key destroyed immediately after the leaf is created. This
+closes the Anthropic path while preserving normal TLS validation for every
+other host.
+
 Version 0.5.3 fixes Sub2API routing for Cursor and OpenCode by normalizing
 unversioned compatible endpoints to their `/v1` API root. Third-party
 Anthropic routes now include Bearer-token authentication while retaining
@@ -93,8 +101,9 @@ does not complete.
   server-auth EKU), with one-click install and removal.
 - The bundled uninstaller removes settings, generated OpenCode files,
   credentials, and the private local signing identity.
-- No global system-proxy change and no root CA. HTTPS termination is limited to
-  the explicitly installed `api.anthropic.com` leaf certificate.
+- No global system-proxy change and no CA installed system-wide. Chromium uses
+  the explicitly installed `api.anthropic.com` leaf trust; Cursor's Node issuer
+  is process-scoped, name-constrained, and cannot sign again after setup.
 
 ## Build
 

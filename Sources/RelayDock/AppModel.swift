@@ -38,6 +38,7 @@ final class AppModel: ObservableObject {
     private let credentialStore: CredentialStoreClient
     private var proxy: ProbeProxy?
     private var anthropicBridge: AnthropicBridgeProxy?
+    private var anthropicNodeBridge: AnthropicBridgeProxy?
     private var activeProxyToken: UUID?
     private var catalogTask: Task<Void, Never>?
     private var modelTestTask: Task<Void, Never>?
@@ -775,9 +776,13 @@ final class AppModel: ObservableObject {
                 stopAnthropicBridge()
 
                 var material: BridgeCertificateMaterial?
+                var nodeMaterial: BridgeCertificateMaterial?
                 if anthropicProfile != nil {
                     material = try await Task.detached(priority: .userInitiated) {
                         try BridgeCertificateManager.ensureMaterial()
+                    }.value
+                    nodeMaterial = try await Task.detached(priority: .userInitiated) {
+                        try CursorNodeBridgeCertificateManager.ensureMaterial()
                     }.value
                     if let material {
                         let wasTrusted = try await Task.detached(priority: .utility) {
@@ -797,18 +802,19 @@ final class AppModel: ObservableObject {
                     try CursorConfiguration.apply(request)
                 }.value
 
-                if let anthropicProfile, let anthropicKey, let material,
+                if let anthropicProfile, let anthropicKey, let material, let nodeMaterial,
                    let baseURL = EndpointValidator.normalizedURL(from: anthropicProfile.baseURL) {
                     let route = try AnthropicBridgeRoute(baseURL: baseURL, apiKey: anthropicKey)
+                    let eventHandler: AnthropicBridgeProxy.EventHandler = { [weak self] event in
+                        Task { @MainActor in
+                            self?.events.insert(event, at: 0)
+                            if self?.events.count ?? 0 > 200 { self?.events.removeLast() }
+                        }
+                    }
                     let bridge = AnthropicBridgeProxy(
                         route: route,
                         material: material,
-                        onEvent: { [weak self] event in
-                            Task { @MainActor in
-                                self?.events.insert(event, at: 0)
-                                if self?.events.count ?? 0 > 200 { self?.events.removeLast() }
-                            }
-                        },
+                        onEvent: eventHandler,
                         onState: { [weak self] running, port in
                             Task { @MainActor in
                                 self?.bridgeRunning = running
@@ -816,9 +822,21 @@ final class AppModel: ObservableObject {
                             }
                         }
                     )
+                    let nodeBridge = AnthropicBridgeProxy(
+                        route: route,
+                        material: nodeMaterial,
+                        onEvent: eventHandler,
+                        onState: { _, _ in }
+                    )
                     anthropicBridge = bridge
+                    anthropicNodeBridge = nodeBridge
                     let port = try bridge.start()
-                    try CursorLauncher.launch(proxyPort: port)
+                    let nodePort = try nodeBridge.start()
+                    try CursorLauncher.launch(
+                        proxyPort: port,
+                        nodeProxyPort: nodePort,
+                        nodeTrustAnchorURL: nodeMaterial.nodeTrustAnchorURL
+                    )
                 } else {
                     try CursorLauncher.openNormally()
                 }
@@ -938,10 +956,13 @@ final class AppModel: ObservableObject {
 
     func stopAnthropicBridge() {
         let activeBridge = anthropicBridge
+        let activeNodeBridge = anthropicNodeBridge
         anthropicBridge = nil
+        anthropicNodeBridge = nil
         bridgeRunning = false
         bridgePort = nil
         activeBridge?.stop()
+        activeNodeBridge?.stop()
     }
 
     func copyCursorBaseURL() {

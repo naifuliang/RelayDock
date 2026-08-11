@@ -28,7 +28,11 @@ enum CursorLauncher {
         guard NSWorkspace.shared.open(appURL) else { throw LauncherError.cursorLaunchFailed }
     }
 
-    static func launch(proxyPort: UInt16) throws {
+    static func launch(
+        proxyPort: UInt16,
+        nodeProxyPort: UInt16? = nil,
+        nodeTrustAnchorURL: URL? = nil
+    ) throws {
         guard isInstalled else { throw LauncherError.cursorNotFound }
         guard !isRunning else { throw LauncherError.cursorAlreadyRunning }
 
@@ -37,7 +41,41 @@ enum CursorLauncher {
         process.arguments = [
             "--proxy-server=http://127.0.0.1:\(proxyPort)"
         ]
+        process.environment = proxyEnvironment(
+            port: nodeProxyPort ?? proxyPort,
+            nodeTrustAnchorURL: nodeTrustAnchorURL
+        )
         try process.run()
+    }
+
+    /// Cursor's renderer uses Chromium's proxy switch, while its AI traffic may be
+    /// issued by the bundled Node runtime in an extension host. Configure both
+    /// paths so a single RelayDock launch consistently reaches the local bridge.
+    static func proxyEnvironment(
+        port: UInt16,
+        nodeTrustAnchorURL: URL? = nil,
+        inheriting environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> [String: String] {
+        var environment = environment
+        let proxy = "http://127.0.0.1:\(port)"
+        let noProxy = "localhost,127.0.0.1,::1"
+
+        environment["HTTP_PROXY"] = proxy
+        environment["HTTPS_PROXY"] = proxy
+        environment["NO_PROXY"] = noProxy
+        environment["http_proxy"] = proxy
+        environment["https_proxy"] = proxy
+        environment["no_proxy"] = noProxy
+
+        // Cursor 40 ships Node 24. NODE_USE_ENV_PROXY makes fetch() honor the
+        // variables above. The optional issuer is scoped to this launched process;
+        // its signing key is not retained and it is never installed system-wide.
+        environment["NODE_USE_ENV_PROXY"] = "1"
+        environment["NODE_USE_SYSTEM_CA"] = "1"
+        if let nodeTrustAnchorURL {
+            environment["NODE_EXTRA_CA_CERTS"] = nodeTrustAnchorURL.path
+        }
+        return environment
     }
 
     static func terminate() async throws {

@@ -177,6 +177,135 @@ final class AnthropicBridgeTests: XCTestCase {
         XCTAssertEqual(head.headers.first(name: "x-api-key"), "sub2api-upstream-key")
         XCTAssertEqual(head.headers.first(name: "authorization"), "Bearer sub2api-upstream-key")
     }
+
+    func testCursorBundledNodeFetchUsesRelayDockProxy() throws {
+        guard ProcessInfo.processInfo.environment["RELAYDOCK_CURSOR_NODE_PROXY_TEST"] == "1" else {
+            throw XCTSkip("Set RELAYDOCK_CURSOR_NODE_PROXY_TEST=1 for the installed-Cursor runtime test.")
+        }
+        guard FileManager.default.isExecutableFile(atPath: CursorLauncher.executableURL.path) else {
+            throw XCTSkip("Cursor is not installed in /Applications.")
+        }
+
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RelayDockCursorNodeE2E-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let material = try CursorNodeBridgeCertificateManager.ensureMaterial(directory: root)
+        let capture = RequestCapture()
+        let upstream = try TestAnthropicUpstream(material: material, capture: capture)
+        defer { upstream.stop() }
+        let route = try AnthropicBridgeRoute(
+            baseURL: XCTUnwrap(URL(string: "https://127.0.0.1:\(upstream.port)/anthropic")),
+            apiKey: "sub2api-upstream-key",
+            verifyUpstreamTLS: false
+        )
+        let proxy = AnthropicBridgeProxy(
+            route: route,
+            material: material,
+            onEvent: { capture.storeEvent($0.detail) },
+            onState: { _, _ in }
+        )
+        let proxyPort = try proxy.start()
+        defer { proxy.stop() }
+
+        let script = #"""
+        fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "x-api-key": "sub2api-upstream-key",
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json"
+          },
+          body: "{}"
+        }).then(async response => {
+          console.log(`STATUS:${response.status}`)
+          console.log(await response.text())
+        }).catch(error => {
+          console.error(error)
+          process.exitCode = 1
+        })
+        """#
+        let process = Process()
+        process.executableURL = CursorLauncher.executableURL
+        process.arguments = ["-e", script]
+        var environment = CursorLauncher.proxyEnvironment(
+            port: proxyPort,
+            nodeTrustAnchorURL: material.nodeTrustAnchorURL,
+            inheriting: [:]
+        )
+        environment["ELECTRON_RUN_AS_NODE"] = "1"
+        process.environment = environment
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = output
+        try process.run()
+        let responseData = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+
+        let response = String(decoding: responseData, as: UTF8.self)
+        XCTAssertEqual(process.terminationStatus, 0, "\(response)\nEvents: \(capture.events)")
+        XCTAssertTrue(response.contains("STATUS:200"), response)
+        XCTAssertTrue(response.contains("data: first"), response)
+        XCTAssertTrue(response.contains("data: second"), response)
+        let head = try XCTUnwrap(capture.head)
+        XCTAssertEqual(head.uri, "/anthropic/v1/messages")
+        XCTAssertEqual(head.headers.first(name: "x-api-key"), "sub2api-upstream-key")
+        XCTAssertEqual(head.headers.first(name: "authorization"), "Bearer sub2api-upstream-key")
+    }
+
+    func testNonAnthropicConnectRemainsAnEncryptedRawTunnel() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RelayDockRawTunnel-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let material = try BridgeCertificateManager.ensureMaterial(directory: root)
+        let capture = RequestCapture()
+        let upstream = try TestAnthropicUpstream(
+            material: material,
+            capture: capture,
+            host: "::1"
+        )
+        defer { upstream.stop() }
+        let route = try AnthropicBridgeRoute(
+            baseURL: XCTUnwrap(URL(string: "https://127.0.0.1:\(upstream.port)")),
+            apiKey: "unused-for-raw-tunnel",
+            verifyUpstreamTLS: false
+        )
+        let proxy = AnthropicBridgeProxy(
+            route: route,
+            material: material,
+            onEvent: { capture.storeEvent($0.detail) },
+            onState: { _, _ in }
+        )
+        let proxyPort = try proxy.start()
+        defer { proxy.stop() }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/openssl")
+        process.arguments = [
+            "s_client", "-quiet", "-verify_return_error",
+            "-proxy", "127.0.0.1:\(proxyPort)",
+            "-connect", "[::1]:\(upstream.port)",
+            "-servername", "api.anthropic.com",
+            "-CAfile", material.certificateURL.path
+        ]
+        let input = Pipe()
+        let output = Pipe()
+        process.standardInput = input
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        let request = "GET /raw-tunnel HTTP/1.1\r\nHost: api.anthropic.com\r\nConnection: close\r\n\r\n"
+        input.fileHandleForWriting.write(Data(request.utf8))
+        try input.fileHandleForWriting.close()
+        let responseData = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+
+        let response = String(decoding: responseData, as: UTF8.self)
+        XCTAssertEqual(process.terminationStatus, 0, response)
+        XCTAssertTrue(response.contains("HTTP/1.1 200 OK"), response)
+        XCTAssertEqual(capture.head?.uri, "/raw-tunnel")
+        XCTAssertTrue(capture.events.contains("Encrypted tunnel established"), "\(capture.events)")
+        XCTAssertFalse(capture.events.contains("Anthropic TLS bridge established"), "\(capture.events)")
+    }
 }
 
 private final class RequestCapture: @unchecked Sendable {
@@ -214,7 +343,11 @@ private final class TestAnthropicUpstream {
     private let channel: Channel
     let port: Int
 
-    init(material: BridgeCertificateMaterial, capture: RequestCapture) throws {
+    init(
+        material: BridgeCertificateMaterial,
+        capture: RequestCapture,
+        host: String = "127.0.0.1"
+    ) throws {
         let certificates = try NIOSSLCertificate.fromPEMFile(material.certificateURL.path)
         let privateKey = try NIOSSLPrivateKey(file: material.privateKeyURL.path, format: .pem)
         let context = try NIOSSLContext(configuration: .makeServerConfiguration(
@@ -235,7 +368,7 @@ private final class TestAnthropicUpstream {
                         channel.pipeline.addHandler(TestAnthropicHandler(capture: capture))
                     }
                 }
-                .bind(host: "127.0.0.1", port: 0)
+                .bind(host: host, port: 0)
                 .wait()
             port = try XCTUnwrap(channel.localAddress?.port)
         } catch {
