@@ -13,6 +13,8 @@ final class InstallerContinuityTests: XCTestCase {
         XCTAssertFalse(oneLineInstaller.contains("codesign --force"))
         XCTAssertTrue(packager.contains("$ZIP_STAGING_DIR/Install RelayDock.command"))
         XCTAssertTrue(packager.contains("$ZIP_STAGING_DIR/.payload/$APP_NAME.app"))
+        XCTAssertTrue(packager.contains("ln -s \".payload/$APP_NAME.app\" \"$STAGING_DIR/$APP_NAME.app\""))
+        XCTAssertTrue(packager.contains("/usr/bin/SetFile -P -a V \"$STAGING_DIR/$APP_NAME.app\""))
         XCTAssertFalse(packager.contains("ln -s /Applications"))
         XCTAssertFalse(packager.contains("pkgbuild"))
         XCTAssertTrue(installer.contains("EXISTING_REQUIREMENT"))
@@ -40,6 +42,15 @@ final class InstallerContinuityTests: XCTestCase {
         XCTAssertTrue(helper.contains("FILTERED_KEYCHAINS"))
         XCTAssertTrue(helper.contains("list-keychains -d user -s"))
         XCTAssertTrue(helper.contains("REMOVED_SEARCH_ENTRY=1"))
+    }
+
+    func testUninstallerQueriesBridgeCertificatesInExplicitDefaultKeychain() throws {
+        let uninstaller = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("scripts/uninstall-relaydock.command")
+        )
+        XCTAssertTrue(uninstaller.contains("security default-keychain -d user"))
+        XCTAssertTrue(uninstaller.contains("\"$DEFAULT_USER_KEYCHAIN\""))
+        XCTAssertTrue(uninstaller.contains("find-certificate -a -c \"RelayDock Anthropic Bridge\" -p"))
     }
 
     func testExecutableSigningTransitionPolicy() throws {

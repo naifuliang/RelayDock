@@ -41,6 +41,12 @@ ditto -c -k --norsrc "$ZIP_STAGING_DIR" "$ZIP_PATH"
 
 mkdir -p "$STAGING_DIR/.payload"
 ditto --noextattr --norsrc "$APP_PATH" "$STAGING_DIR/.payload/$APP_NAME.app"
+# RelayDock 0.5.0's updater preflights a root-level RelayDock.app before it
+# launches this release's installer. Keep a non-copy compatibility symlink so
+# that old updater can validate the payload while every replacement still goes
+# through Install RelayDock.command and its transactional identity checks.
+ln -s ".payload/$APP_NAME.app" "$STAGING_DIR/$APP_NAME.app"
+/usr/bin/SetFile -P -a V "$STAGING_DIR/$APP_NAME.app"
 cp "$ROOT_DIR/scripts/install-relaydock.command" "$STAGING_DIR/Install RelayDock.command"
 cp "$ROOT_DIR/scripts/uninstall-relaydock.command" "$STAGING_DIR/Uninstall RelayDock.command"
 cp "$ROOT_DIR/scripts/local-sign-relaydock.sh" "$STAGING_DIR/local-sign-relaydock.sh"

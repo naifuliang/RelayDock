@@ -19,6 +19,17 @@ fi
 /usr/bin/pkill -x RelayDock 2>/dev/null || true
 
 BRIDGE_CERTIFICATE="$HOME/Library/Application Support/RelayDock/Bridge/api.anthropic.com.pem"
+if ! DEFAULT_USER_KEYCHAIN_OUTPUT="$(/usr/bin/security default-keychain -d user 2>&1)"; then
+    echo "Could not determine the default user Keychain. RelayDock was left in place."
+    echo "$DEFAULT_USER_KEYCHAIN_OUTPUT"
+    exit 1
+fi
+DEFAULT_USER_KEYCHAIN="$(print -r -- "$DEFAULT_USER_KEYCHAIN_OUTPUT" \
+    | /usr/bin/sed -e 's/^[[:space:]]*"//' -e 's/"[[:space:]]*$//')"
+if [[ "$DEFAULT_USER_KEYCHAIN" != /* ]]; then
+    echo "The default user Keychain path is invalid. RelayDock was left in place."
+    exit 1
+fi
 RECOVERY_DIRECTORY="$(/usr/bin/mktemp -d -t relaydock-bridge-certificates)"
 cleanup_bridge_recovery() {
     if [[ "${RECOVERY_DIRECTORY:t}" == relaydock-bridge-certificates.* ]]; then
@@ -54,6 +65,7 @@ for PASS in {1..8}; do
         /bin/cp "$BRIDGE_CERTIFICATE" "$RECOVERY_DIRECTORY/candidate-local.pem"
     fi
     if ! /usr/bin/security find-certificate -a -c "RelayDock Anthropic Bridge" -p \
+        "$DEFAULT_USER_KEYCHAIN" \
         >"$RECOVERY_DIRECTORY/all.pem" 2>"$RECOVERY_DIRECTORY/find-error.txt"; then
         echo "Could not query the Keychain for Anthropic Bridge certificates. RelayDock and its recovery material were left in place."
         /bin/cat "$RECOVERY_DIRECTORY/find-error.txt"
