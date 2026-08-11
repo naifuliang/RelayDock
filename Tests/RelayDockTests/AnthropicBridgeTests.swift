@@ -45,13 +45,26 @@ final class AnthropicBridgeTests: XCTestCase {
         )
         XCTAssertEqual(rewritten.headers.first(name: "host"), "gateway.example")
         XCTAssertEqual(rewritten.headers.first(name: "x-api-key"), "upstream-key")
-        XCTAssertNil(rewritten.headers.first(name: "authorization"))
+        XCTAssertEqual(rewritten.headers.first(name: "authorization"), "Bearer upstream-key")
         XCTAssertEqual(rewritten.headers.first(name: "anthropic-version"), "2025-01-01")
         XCTAssertEqual(rewritten.headers.first(name: "content-type"), "application/json")
         XCTAssertEqual(rewritten.headers.first(name: "connection"), "close")
         XCTAssertNil(rewritten.headers.first(name: "keep-alive"))
         XCTAssertNil(rewritten.headers.first(name: "x-private-hop"))
         XCTAssertNil(rewritten.headers.first(name: "proxy-authorization"))
+    }
+
+    func testOfficialAnthropicUpstreamUsesNativeAPIKeyOnly() throws {
+        let route = try AnthropicBridgeRoute(
+            baseURL: XCTUnwrap(URL(string: "https://api.anthropic.com/v1")),
+            apiKey: "official-key"
+        )
+        let rewritten = AnthropicBridgeRequestRewriter.upstreamHead(
+            HTTPRequestHead(version: .http1_1, method: .POST, uri: "/v1/messages"),
+            route: route
+        )
+        XCTAssertEqual(rewritten.headers.first(name: "x-api-key"), "official-key")
+        XCTAssertNil(rewritten.headers.first(name: "authorization"))
     }
 
     func testLocalClientMustPresentSelectedEndpointKey() {
@@ -162,7 +175,7 @@ final class AnthropicBridgeTests: XCTestCase {
         let head = try XCTUnwrap(capture.head)
         XCTAssertEqual(head.uri, "/anthropic/v1/messages")
         XCTAssertEqual(head.headers.first(name: "x-api-key"), "sub2api-upstream-key")
-        XCTAssertNil(head.headers.first(name: "authorization"))
+        XCTAssertEqual(head.headers.first(name: "authorization"), "Bearer sub2api-upstream-key")
     }
 }
 

@@ -56,6 +56,17 @@ final class ModelAPIRequestFactoryTests: XCTestCase {
         XCTAssertEqual(request.value(forHTTPHeaderField: "anthropic-version"), "2023-06-01")
     }
 
+    func testThirdPartyAnthropicGatewayAlsoUsesBearerToken() throws {
+        let profile = GatewayProfile(provider: .anthropic, baseURL: "https://sub2api.example")
+        let request = try ModelAPIRequestFactory.probe(
+            profile: profile,
+            modelID: "claude-sonnet",
+            apiKey: "gateway-key"
+        )
+        XCTAssertEqual(request.value(forHTTPHeaderField: "x-api-key"), "gateway-key")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer gateway-key")
+    }
+
     func testAnthropicCatalogSupportsPaginationCursor() throws {
         let profile = GatewayProfile(provider: .anthropic, baseURL: "https://api.anthropic.com/v1")
         let request = try ModelAPIRequestFactory.catalog(profile: profile, apiKey: "key", afterID: "model-20")

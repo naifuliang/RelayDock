@@ -55,13 +55,55 @@ final class CursorConfigurationTests: XCTestCase {
         let attributes = try FileManager.default.attributesOfItem(atPath: receipt.backupURL.path)
         XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
 
-        try CursorConfiguration.rollback(receipt, databaseURL: databaseURL)
+        try CursorConfiguration.rollback(
+            receipt,
+            databaseURL: databaseURL,
+            requireCursorQuit: false
+        )
         XCTAssertEqual(try databaseValue(forKey: CursorConfiguration.persistentStorageKey), originalStorage)
         XCTAssertEqual(try databaseValue(forKey: CursorConfiguration.openAISecretKey), "old-openai-encrypted")
         XCTAssertEqual(try databaseValue(forKey: CursorConfiguration.claudeSecretKey), "old-claude-encrypted")
         XCTAssertNil(try databaseValue(forKey: CursorConfiguration.openAILegacyKey))
         XCTAssertNil(try databaseValue(forKey: CursorConfiguration.claudeLegacyKey))
         XCTAssertFalse(FileManager.default.fileExists(atPath: receipt.backupURL.path))
+    }
+
+    func testApplyAddsV1ToUnversionedOpenAIGatewayRoot() throws {
+        _ = try CursorConfiguration.apply(
+            CursorImportRequest(
+                openAIBaseURL: "https://sub2api.example",
+                openAIKey: "openai-secret",
+                anthropicKey: nil,
+                modelIDs: ["gpt-test"]
+            ),
+            databaseURL: databaseURL,
+            backupDirectory: backupDirectory,
+            cursorVersion: "3.14.7",
+            requireCursorQuit: false
+        )
+
+        let storageData = try XCTUnwrap(
+            try databaseValue(forKey: CursorConfiguration.persistentStorageKey)?.data(using: .utf8)
+        )
+        let storage = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: storageData) as? [String: Any]
+        )
+        XCTAssertEqual(storage["openAIBaseUrl"] as? String, "https://sub2api.example/v1")
+    }
+
+    func testCursorOpenAIBaseURLPreservesExistingVersionedAndNestedRoots() throws {
+        XCTAssertEqual(
+            CursorConfiguration.cursorOpenAIBaseURL(
+                try XCTUnwrap(URL(string: "https://gateway.example/v1"))
+            ).absoluteString,
+            "https://gateway.example/v1"
+        )
+        XCTAssertEqual(
+            CursorConfiguration.cursorOpenAIBaseURL(
+                try XCTUnwrap(URL(string: "https://gateway.example/openai"))
+            ).absoluteString,
+            "https://gateway.example/openai/v1"
+        )
     }
 
     func testFinalizeRequiresCursorToRemoveTemporaryPlaintextKey() throws {
@@ -134,7 +176,11 @@ final class CursorConfigurationTests: XCTestCase {
             requireCursorQuit: false
         )
 
-        try CursorConfiguration.rollbackLatest(databaseURL: databaseURL, directory: backupDirectory)
+        try CursorConfiguration.rollbackLatest(
+            databaseURL: databaseURL,
+            directory: backupDirectory,
+            requireCursorQuit: false
+        )
 
         XCTAssertEqual(try databaseValue(forKey: CursorConfiguration.persistentStorageKey), originalStorage)
         XCTAssertEqual(try databaseValue(forKey: CursorConfiguration.openAISecretKey), "old-openai-encrypted")

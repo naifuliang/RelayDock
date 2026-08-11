@@ -146,6 +146,9 @@ enum AnthropicBridgeRequestRewriter {
         let host = route.baseURL.host ?? ""
         headers.replaceOrAdd(name: "host", value: port == 443 ? host : "\(host):\(port)")
         headers.replaceOrAdd(name: "x-api-key", value: route.apiKey)
+        if EndpointValidator.isThirdPartyAnthropicGateway(route.baseURL) {
+            headers.replaceOrAdd(name: "authorization", value: "Bearer \(route.apiKey)")
+        }
         if !headers.contains(name: "anthropic-version") {
             headers.add(name: "anthropic-version", value: "2023-06-01")
         }

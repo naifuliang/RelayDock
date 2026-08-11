@@ -89,13 +89,11 @@ struct ContentView: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 Button { model.configureOpenCode(launch: true) } label: {
-                    Label("打开 OpenCode", systemImage: "terminal")
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    sidebarLauncherLabel("打开 OpenCode", systemImage: "terminal")
                 }
                 .disabled(!model.openCodeInstalled)
                 Button { model.openCursor() } label: {
-                    Label("打开 Cursor", systemImage: "cursorarrow")
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    sidebarLauncherLabel("打开 Cursor", systemImage: "cursorarrow")
                 }
                 .disabled(!model.cursorInstalled)
             }
@@ -107,6 +105,15 @@ struct ContentView: View {
         .padding(20)
         .frame(width: 218)
         .background(Color.white)
+    }
+
+    private func sidebarLauncherLabel(_ title: String, systemImage: String) -> some View {
+        HStack(spacing: 9) {
+            Image(systemName: systemImage)
+                .frame(width: 20, alignment: .center)
+            Text(title)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var pageHeader: some View {

@@ -131,6 +131,10 @@ enum ModelAPIRequestFactory {
             request.setValue(key, forHTTPHeaderField: "api-key")
         case .anthropic:
             request.setValue(key, forHTTPHeaderField: "x-api-key")
+            if let baseURL = EndpointValidator.normalizedURL(from: profile.baseURL),
+               EndpointValidator.isThirdPartyAnthropicGateway(baseURL) {
+                request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+            }
             request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         case .openAICompatible, .openAIResponses:
             request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")

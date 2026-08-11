@@ -2,6 +2,16 @@ import Foundation
 import XCTest
 
 final class InstallerContinuityTests: XCTestCase {
+    func testReleaseVersionAndBuildArePaired() throws {
+        let infoURL = repositoryRoot.appendingPathComponent("support/Info.plist")
+        let data = try Data(contentsOf: infoURL)
+        let plist = try XCTUnwrap(
+            PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+        )
+        XCTAssertEqual(plist["CFBundleShortVersionString"] as? String, "0.5.3")
+        XCTAssertEqual(plist["CFBundleVersion"] as? String, "9")
+    }
+
     func testEveryUnsignedDistributionChannelUsesSharedTransactionalInstaller() throws {
         let root = repositoryRoot
         let oneLineInstaller = try String(contentsOf: root.appendingPathComponent("install.sh"))
