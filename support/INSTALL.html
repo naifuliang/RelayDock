@@ -18,7 +18,7 @@
 </head>
 <body>
   <h1>安装 RelayDock</h1>
-  <p class="subtle">RelayDock 0.5.0 · 已验证模型与 OpenCode/Cursor 一键配置</p>
+  <p class="subtle">RelayDock 0.5.1 · Keychain 与安装签名连续性修复</p>
 
   <div class="card">
     <strong>最简单：复制一条命令</strong>
@@ -28,7 +28,9 @@
   </div>
 
   <p class="note"><strong>安全范围：</strong>App 安装器不会全局关闭 Gatekeeper、安装受信任根 CA 或修改系统代理。对于当前未公证测试版，它只会移除 RelayDock 安装副本的 quarantine 属性，并创建稳定的 RelayDock 本地签名身份；安装 App 本身不会添加 TLS 信任。以后若为 Cursor 选择 Anthropic Endpoint，RelayDock 才会另行请求 macOS 信任一个 SAN 仅含 <code>api.anthropic.com</code>、<code>CA:FALSE</code> 的叶证书。卸载器会删除两种身份和该信任。</p>
-  <p><strong>从旧版升级：</strong>旧版使用每次变化的 ad-hoc 签名。RelayDock 会禁止 Keychain 弹出交互授权框；若旧 Endpoint Key 因签名变化无法读取，界面会显示为空，需要重新填写一次。之后由稳定本地签名安装的版本会持续复用同一身份，不再弹密码框。</p>
+  <p><strong>从旧版升级：</strong>RelayDock 启动和切换 Endpoint 时不会读取 Keychain 中的秘密，因此不会突然弹出密码框。发现旧版独立 Key 条目时，界面会显示“一次性迁移”；只有你点击后 macOS 才可能要求授权。新版会先把所有获准读取的 Key 写入并验证统一凭据仓库，再清理旧条目。</p>
+  <p><strong>签名连续性：</strong>一键脚本、ZIP、DMG 与应用内更新共用同一个事务安装器。替换旧 App 前会比较 designated requirement，安装后再次验证版本、签名和 requirement；任何失败都会恢复旧 App。损坏的本地签名 identity 不会被静默轮换，修复必须单独确认，原材料会保留在 Recovery 目录。</p>
+  <p><strong>不要手动覆盖 App：</strong>发布包中的原始 App 保存在隐藏的 <code>.payload</code> 内，DMG 不再提供拖到 Applications 的入口。请使用安装脚本，避免绕过签名连续性与回滚检查。</p>
 
   <div class="card">
     <strong>离线备用：从当前磁盘映像安装</strong>
@@ -41,7 +43,7 @@
     </ol>
   </div>
 
-  <p><strong>离线安装注意：</strong>不要直接双击脚本，也不要只把脚本拖到终端后运行。命令最前面必须有 <code>/bin/zsh</code>。完整命令看起来类似：<br><code>/bin/zsh "/Volumes/RelayDock 0.5.0/Install RelayDock.command"</code></p>
+  <p><strong>离线安装注意：</strong>不要直接双击脚本，也不要只把脚本拖到终端后运行。命令最前面必须有 <code>/bin/zsh</code>。完整命令看起来类似：<br><code>/bin/zsh "/Volumes/RelayDock 0.5.1/Install RelayDock.command"</code></p>
 
   <h2>为什么不能直接双击？</h2>
   <p>当前个人测试包还没有 Apple Developer ID 与公证票据。直接双击会触发“无法验证是否包含恶意软件”的 Gatekeeper 提示。安装脚本会完成本地签名，用户无需手动运行 <code>codesign</code>。上面的拖拽方式不依赖固定卷名，即使系统给磁盘映像添加数字后缀也能正确运行。</p>
