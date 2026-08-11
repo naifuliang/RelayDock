@@ -22,6 +22,14 @@ The icon is hand-drawn from deterministic vector geometry. Edit
 `Assets/AppIcon.svg` or the matching dimensions in `scripts/render-icon.swift`;
 `scripts/build-icon.sh` renders the PNG and ICNS assets.
 
+Version 0.5.3 fixes Sub2API routing for Cursor and OpenCode by normalizing
+unversioned compatible endpoints to their `/v1` API root. Third-party
+Anthropic routes now include Bearer-token authentication while retaining
+native `x-api-key` compatibility. A new verified Keychain vault migrates the
+old ACL-bound item after one approved read so later edits do not repeatedly
+ask for the login-keychain password. Sidebar launcher labels are aligned on a
+fixed icon column.
+
 Version 0.5.2 fixes one-click Anthropic Bridge trust installation on current
 macOS releases. The app now installs its self-signed, `CA:FALSE` leaf with the
 correct `trustRoot` result, scoped only to SSL for `api.anthropic.com`, verifies

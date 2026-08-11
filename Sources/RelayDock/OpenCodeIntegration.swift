@@ -69,8 +69,12 @@ enum OpenCodeIntegration {
                 throw OpenCodeError.invalidEndpoint(profile.displayName)
             }
 
+            let openCodeBaseURL = profile.provider == .azureOpenAI
+                ? normalizedURL
+                : EndpointValidator.versionedAPIRoot(normalizedURL)
             var options: [String: Any] = [
-                "baseURL": normalizedURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                "baseURL": openCodeBaseURL.absoluteString
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             ]
             let apiKey = apiKeys[profile.id]?.trimmed ?? ""
             if !apiKey.isEmpty {
@@ -80,6 +84,20 @@ enum OpenCodeIntegration {
                 try Data(apiKey.utf8).write(to: stagedKeyURL, options: .atomic)
                 try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: stagedKeyURL.path)
                 options["apiKey"] = "{file:\(finalKeyURL.path)}"
+                if profile.provider == .anthropic,
+                   EndpointValidator.isThirdPartyAnthropicGateway(normalizedURL) {
+                    let bearerName = "\(profile.id.uuidString.lowercased()).bearer"
+                    let stagedBearerURL = keysDirectory.appendingPathComponent(bearerName)
+                    let finalBearerURL = directory.appendingPathComponent("keys/\(bearerName)")
+                    try Data("Bearer \(apiKey)".utf8).write(to: stagedBearerURL, options: .atomic)
+                    try fileManager.setAttributes(
+                        [.posixPermissions: 0o600],
+                        ofItemAtPath: stagedBearerURL.path
+                    )
+                    options["headers"] = [
+                        "Authorization": "{file:\(finalBearerURL.path)}"
+                    ]
+                }
             }
             if profile.provider == .azureOpenAI {
                 options["apiVersion"] = profile.azureAPIVersion.trimmed.isEmpty ? "v1" : profile.azureAPIVersion.trimmed

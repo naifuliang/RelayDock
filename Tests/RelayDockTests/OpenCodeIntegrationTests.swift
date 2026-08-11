@@ -77,6 +77,98 @@ final class OpenCodeIntegrationTests: XCTestCase {
         XCTAssertEqual(openAIOptions["apiKey"] as? String, "{file:\(keyURL.path)}")
     }
 
+    func testAddsV1ToUnversionedOpenAIAndAnthropicGatewayRoots() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RelayDockOpenCodeVersionTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let openAI = GatewayProfile(
+            provider: .openAICompatible,
+            baseURL: "https://sub2api.example",
+            models: [GatewayModel(modelID: "gpt-test", isVerified: true)]
+        )
+        let anthropic = GatewayProfile(
+            provider: .anthropic,
+            baseURL: "https://sub2api.example/anthropic",
+            models: [GatewayModel(modelID: "claude-test", isVerified: true)]
+        )
+
+        let configURL = try OpenCodeIntegration.generateConfiguration(
+            profiles: [openAI, anthropic],
+            apiKeys: [:],
+            directory: root
+        )
+        let document = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: configURL)) as? [String: Any]
+        )
+        let providers = try XCTUnwrap(document["provider"] as? [String: Any])
+        let openAIOptions = try XCTUnwrap(
+            (providers[openAI.providerID] as? [String: Any])?["options"] as? [String: Any]
+        )
+        let anthropicOptions = try XCTUnwrap(
+            (providers[anthropic.providerID] as? [String: Any])?["options"] as? [String: Any]
+        )
+        XCTAssertEqual(openAIOptions["baseURL"] as? String, "https://sub2api.example/v1")
+        XCTAssertEqual(
+            anthropicOptions["baseURL"] as? String,
+            "https://sub2api.example/anthropic/v1"
+        )
+        XCTAssertNil(anthropicOptions["authToken"])
+        XCTAssertNil(anthropicOptions["headers"])
+    }
+
+    func testThirdPartyAnthropicKeepsAPIKeyAndAddsBearerAuthorizationHeader() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RelayDockOpenCodeAuthTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let anthropic = GatewayProfile(
+            provider: .anthropic,
+            baseURL: "https://sub2api.example",
+            models: [GatewayModel(modelID: "claude-test", isVerified: true)]
+        )
+        let official = GatewayProfile(
+            provider: .anthropic,
+            baseURL: "https://api.anthropic.com",
+            models: [GatewayModel(modelID: "claude-official", isVerified: true)]
+        )
+
+        let configURL = try OpenCodeIntegration.generateConfiguration(
+            profiles: [anthropic, official],
+            apiKeys: [anthropic.id: "gateway-secret", official.id: "official-secret"],
+            directory: root
+        )
+        let document = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: configURL)) as? [String: Any]
+        )
+        let providers = try XCTUnwrap(document["provider"] as? [String: Any])
+        let options = try XCTUnwrap(
+            (providers[anthropic.providerID] as? [String: Any])?["options"] as? [String: Any]
+        )
+        let keyURL = root.appendingPathComponent("keys/\(anthropic.id.uuidString.lowercased()).key")
+        let keyReference = "{file:\(keyURL.path)}"
+        XCTAssertEqual(options["apiKey"] as? String, keyReference)
+        XCTAssertNil(options["authToken"])
+        let headers = try XCTUnwrap(options["headers"] as? [String: String])
+        let bearerURL = root.appendingPathComponent(
+            "keys/\(anthropic.id.uuidString.lowercased()).bearer"
+        )
+        XCTAssertEqual(
+            headers["Authorization"],
+            "{file:\(bearerURL.path)}"
+        )
+        XCTAssertEqual(
+            try String(contentsOf: bearerURL, encoding: .utf8),
+            "Bearer gateway-secret"
+        )
+        let bearerAttributes = try FileManager.default.attributesOfItem(atPath: bearerURL.path)
+        XCTAssertEqual((bearerAttributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+        let officialOptions = try XCTUnwrap(
+            (providers[official.providerID] as? [String: Any])?["options"] as? [String: Any]
+        )
+        XCTAssertNotNil(officialOptions["apiKey"])
+        XCTAssertNil(officialOptions["authToken"])
+        XCTAssertNil(officialOptions["headers"])
+    }
+
     func testSkipsDisabledProfilesAndModels() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("RelayDockOpenCodeTests-\(UUID().uuidString)", isDirectory: true)

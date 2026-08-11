@@ -424,4 +424,17 @@ enum EndpointValidator {
         if scheme == "http", loopbackHosts.contains(host) { return url }
         return nil
     }
+
+    static func versionedAPIRoot(_ baseURL: URL) -> URL {
+        let path = baseURL.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let lastComponent = path.split(separator: "/").last.map(String.init) ?? ""
+        let isVersionedAPIRoot = lastComponent.first?.lowercased() == "v"
+            && Int(lastComponent.dropFirst()) != nil
+        return isVersionedAPIRoot ? baseURL : baseURL.appendingPathComponent("v1")
+    }
+
+    static func isThirdPartyAnthropicGateway(_ baseURL: URL) -> Bool {
+        guard let host = baseURL.host?.lowercased() else { return false }
+        return host != "api.anthropic.com" && !host.hasSuffix(".anthropic.com")
+    }
 }

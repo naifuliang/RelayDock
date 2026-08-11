@@ -85,7 +85,7 @@ enum CursorConfiguration {
         let models = normalizedModels(request.modelIDs)
         if let baseURL = request.openAIBaseURL,
            let normalizedURL = EndpointValidator.normalizedURL(from: baseURL) {
-            storage["openAIBaseUrl"] = normalizedURL.absoluteString
+            storage["openAIBaseUrl"] = cursorOpenAIBaseURL(normalizedURL).absoluteString
                 .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             storage["useOpenAIKey"] = true
         }
@@ -160,9 +160,12 @@ enum CursorConfiguration {
 
     static func rollback(
         _ receipt: CursorImportReceipt,
-        databaseURL: URL = databaseURL
+        databaseURL: URL = databaseURL,
+        requireCursorQuit: Bool = true
     ) throws {
-        guard !CursorLauncher.isRunning else { throw CursorConfigurationError.cursorIsRunning }
+        if requireCursorQuit, CursorLauncher.isRunning {
+            throw CursorConfigurationError.cursorIsRunning
+        }
         let data = try Data(contentsOf: receipt.backupURL)
         let snapshot = try JSONDecoder().decode(CursorConfigurationSnapshot.self, from: data)
         guard snapshot.databasePath == databaseURL.path else {
@@ -191,9 +194,12 @@ enum CursorConfiguration {
 
     static func rollbackLatest(
         databaseURL: URL = databaseURL,
-        directory: URL = backupDirectory
+        directory: URL = backupDirectory,
+        requireCursorQuit: Bool = true
     ) throws {
-        guard !CursorLauncher.isRunning else { throw CursorConfigurationError.cursorIsRunning }
+        if requireCursorQuit, CursorLauncher.isRunning {
+            throw CursorConfigurationError.cursorIsRunning
+        }
         let fileManager = FileManager.default
         let backups = (try? fileManager.contentsOfDirectory(
             at: directory,
@@ -212,7 +218,7 @@ enum CursorConfiguration {
             backupURL: latest,
             importedModelIDs: [],
             expectedMigrations: []
-        ), databaseURL: databaseURL)
+        ), databaseURL: databaseURL, requireCursorQuit: false)
     }
 
     private static func validate(_ request: CursorImportRequest) throws {
@@ -254,6 +260,13 @@ enum CursorConfiguration {
             let value = $0.trimmingCharacters(in: .whitespacesAndNewlines)
             return !value.isEmpty && seen.insert(value).inserted ? value : nil
         }
+    }
+
+    /// Cursor appends resource names such as `chat/completions` to this value.
+    /// RelayDock's tester accepts an unversioned root and adds `/v1` itself, so
+    /// normalize the persisted Cursor value to that same API root.
+    static func cursorOpenAIBaseURL(_ baseURL: URL) -> URL {
+        EndpointValidator.versionedAPIRoot(baseURL)
     }
 
     private static func mergeModels(_ models: [String], into storage: inout [String: Any]) {

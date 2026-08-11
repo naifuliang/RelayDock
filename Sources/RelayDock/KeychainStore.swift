@@ -4,7 +4,12 @@ import Security
 
 enum KeychainStore {
     private static let service = "app.relaydock.credentials"
-    private static let vaultAccount = "credential-vault.v1"
+    // A new account intentionally replaces the v1 item. Updating an old
+    // Keychain item's bytes does not replace its signing ACL, which can make
+    // macOS ask again after an app update. One approved read migrates the
+    // complete vault into an item owned by RelayDock's current stable identity.
+    private static let vaultAccount = "credential-vault.v2"
+    private static let legacyVaultAccount = "credential-vault.v1"
     private static let legacyAccount = "gateway-api-key"
 
     enum Presence: Equatable {
@@ -41,12 +46,16 @@ enum KeychainStore {
         // to use at launch because no credential bytes are returned.
         let vaultPresence = itemPresence(account: vaultAccount)
         if vaultPresence.mayExist { return vaultPresence }
+        let legacyVaultPresence = itemPresence(account: legacyVaultAccount)
+        if legacyVaultPresence.mayExist { return legacyVaultPresence }
         let profilePresence = itemPresence(account: legacyProfileAccount(for: profileID))
         if profilePresence.mayExist { return profilePresence }
         return includeLegacyKey ? itemPresence(account: legacyAccount) : .absent
     }
 
     static func legacyCredentialsMayNeedMigration(profileIDs: [UUID], includeLegacyKey: Bool) -> Bool {
+        if !itemPresence(account: vaultAccount).mayExist,
+           itemPresence(account: legacyVaultAccount).mayExist { return true }
         if includeLegacyKey, itemPresence(account: legacyAccount).mayExist { return true }
         return profileIDs.contains { itemPresence(account: legacyProfileAccount(for: $0)).mayExist }
     }
@@ -55,7 +64,7 @@ enum KeychainStore {
     /// pre-v0.5.1 item, the value is copied into the single vault and the old
     /// item is removed non-interactively when macOS permits it.
     static func loadAPIKeyForUserAction(for profileID: UUID, includeLegacyKey: Bool = false) throws -> String {
-        var vault = try loadVault(mode: .userInitiated)
+        var vault = try loadCurrentVault(mode: .userInitiated)
         let vaultKey = vaultKey(for: profileID)
         if let value = vault.keys[vaultKey] { return value }
 
@@ -78,7 +87,7 @@ enum KeychainStore {
     }
 
     static func saveAPIKey(_ value: String, for profileID: UUID) throws {
-        var vault = try loadVault(mode: .userInitiated)
+        var vault = try loadCurrentVault(mode: .userInitiated)
         let key = vaultKey(for: profileID)
         if value.isEmpty {
             vault.keys.removeValue(forKey: key)
@@ -95,7 +104,7 @@ enum KeychainStore {
     }
 
     static func migrateCredentials(profileIDs: [UUID], legacyProfileID: UUID?) throws -> MigrationReport {
-        var vault = try loadVault(mode: .userInitiated)
+        var vault = try loadCurrentVault(mode: .userInitiated)
         var migrated = 0
         var unresolved = 0
         var migratedLegacyKey = false
@@ -201,6 +210,26 @@ enum KeychainStore {
         guard let data = try loadItemData(account: vaultAccount, mode: mode) else {
             return CredentialVault()
         }
+        return try decodeVault(data)
+    }
+
+    private static func loadCurrentVault(mode: AccessMode) throws -> CredentialVault {
+        if let data = try loadItemData(account: vaultAccount, mode: mode) {
+            return try decodeVault(data)
+        }
+        guard let legacyData = try loadItemData(account: legacyVaultAccount, mode: mode) else {
+            return CredentialVault()
+        }
+        let legacyVault = try decodeVault(legacyData)
+        try saveVault(legacyVault, mode: mode)
+        guard try loadVault(mode: .nonInteractive) == legacyVault else {
+            throw KeychainMigrationError.verificationFailed
+        }
+        try? removeItem(account: legacyVaultAccount, mode: .nonInteractive)
+        return legacyVault
+    }
+
+    private static func decodeVault(_ data: Data) throws -> CredentialVault {
         do {
             return try JSONDecoder().decode(CredentialVault.self, from: data)
         } catch {
