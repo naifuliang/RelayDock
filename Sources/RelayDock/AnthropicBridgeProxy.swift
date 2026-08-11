@@ -50,7 +50,10 @@ final class AnthropicBridgeProxy: @unchecked Sendable {
         defer { lock.unlock() }
         if serverChannel != nil, let listeningPort { return listeningPort }
 
-        let certificates = try NIOSSLCertificate.fromPEMFile(material.certificateURL.path)
+        var certificates = try NIOSSLCertificate.fromPEMFile(material.certificateURL.path)
+        for chainURL in material.chainCertificateURLs {
+            certificates.append(contentsOf: try NIOSSLCertificate.fromPEMFile(chainURL.path))
+        }
         let privateKey = try NIOSSLPrivateKey(file: material.privateKeyURL.path, format: .pem)
         var configuration = TLSConfiguration.makeServerConfiguration(
             certificateChain: certificates.map { .certificate($0) },

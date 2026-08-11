@@ -3,6 +3,20 @@ import Foundation
 struct BridgeCertificateMaterial: Equatable {
     let certificateURL: URL
     let privateKeyURL: URL
+    let chainCertificateURLs: [URL]
+    let nodeTrustAnchorURL: URL?
+
+    init(
+        certificateURL: URL,
+        privateKeyURL: URL,
+        chainCertificateURLs: [URL] = [],
+        nodeTrustAnchorURL: URL? = nil
+    ) {
+        self.certificateURL = certificateURL
+        self.privateKeyURL = privateKeyURL
+        self.chainCertificateURLs = chainCertificateURLs
+        self.nodeTrustAnchorURL = nodeTrustAnchorURL
+    }
 }
 
 enum BridgeCertificateManager {
