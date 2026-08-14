@@ -18,7 +18,7 @@
 </head>
 <body>
   <h1>Install RelayDock</h1>
-  <p class="subtle">RelayDock 0.5.4 · Cursor Anthropic Node Bridge fix</p>
+  <p class="subtle">RelayDock 0.5.5 · OpenCode reference and Keychain access fix</p>
 
   <div class="card">
     <strong>Easiest: paste one command</strong>
@@ -28,7 +28,7 @@
   </div>
 
   <p class="note"><strong>Security scope:</strong> The app installer does not disable Gatekeeper globally, install a trusted root CA, or change the system proxy. For this unsigned test build, it removes quarantine only from the installed RelayDock copy and creates a stable RelayDock-only signing identity in <code>~/Library/Keychains/RelayDockLocalSigning.keychain-db</code>. No TLS trust is added during app installation. If you later select an Anthropic endpoint for Cursor, RelayDock separately asks macOS to trust one <code>CA:FALSE</code> leaf whose SAN is only <code>api.anthropic.com</code>. The uninstaller removes both identities and that trust.</p>
-  <p><strong>Upgrading from an older build:</strong> RelayDock never reads Keychain secret bytes at launch or when switching endpoints, so no password dialog should appear unexpectedly. When old per-endpoint items are found, the UI offers <strong>Migrate once</strong>. macOS may request access only after you choose it. RelayDock writes and verifies the unified credential vault before cleaning old items.</p>
+  <p><strong>Upgrading from an older build:</strong> Launch, endpoint switching, model sync, and other ordinary actions never open old ACL-bound Keychain items. When an older vault or per-endpoint item is found, the UI offers <strong>Repair Keychain once</strong>; macOS may request access only after you choose it. RelayDock commits the v3 vault only after every old key was read and the new vault passed non-interactive verification. Failure leaves the original data untouched. If an old ACL item cannot be deleted silently, an empty verified v3 tombstone prevents it from being imported again after the last active key is removed.</p>
   <p><strong>Signature continuity:</strong> the one-line script, ZIP, DMG, and in-app updater share one transactional installer. It compares the designated requirement before replacement and verifies version, signature, and requirement afterward; failure restores the previous app. A damaged local signing identity is never rotated silently: repair requires separate confirmation and preserves the old material in a Recovery directory.</p>
   <p><strong>Do not replace the app manually:</strong> the raw app payload is kept inside hidden <code>.payload</code>, and the DMG no longer offers an Applications drag target. Use the installer so requirement checks and rollback cannot be bypassed.</p>
 
@@ -43,7 +43,7 @@
     </ol>
   </div>
 
-  <p><strong>Offline installation note:</strong> Do not double-click the script, and do not run the dragged path by itself. The command must begin with <code>/bin/zsh</code>. It should look similar to:<br><code>/bin/zsh "/Volumes/RelayDock 0.5.4/Install RelayDock.command"</code></p>
+  <p><strong>Offline installation note:</strong> Do not double-click the script, and do not run the dragged path by itself. The command must begin with <code>/bin/zsh</code>. It should look similar to:<br><code>/bin/zsh "/Volumes/RelayDock 0.5.5/Install RelayDock.command"</code></p>
 
   <h2>Why not double-click?</h2>
   <p>This personal test build does not yet have an Apple Developer ID or notarization ticket. Double-clicking it triggers Gatekeeper's “cannot verify” warning. The installer applies the local signature, so you do not need to run <code>codesign</code> yourself. The drag-to-Terminal method also works when macOS mounts the image with a numeric suffix.</p>
@@ -69,7 +69,7 @@
     <li>The first Anthropic setup requests a macOS trust authorization once. RelayDock reports success only after the certificate, bridge, Cursor database transaction, and Cursor encrypted-key migration all verify.</li>
   </ol>
 
-  <p class="note"><strong>Bridge scope:</strong> the listener is loopback-only. Non-target domains remain encrypted byte tunnels. TLS termination and endpoint rewriting occur only for <code>api.anthropic.com</code>; request bodies, responses, prompts, headers, and keys are never logged. Keep RelayDock running while using this route.</p>
+  <p class="note"><strong>Bridge scope and egress:</strong> the listener is loopback-only. Non-target domains remain encrypted byte tunnels. TLS termination and endpoint rewriting occur only for <code>api.anthropic.com</code>. The Bridge first preserves the inherited <code>HTTP_PROXY</code>/<code>HTTPS_PROXY</code>/<code>ALL_PROXY</code>, otherwise follows the macOS default HTTP proxy and exception rules, then uses HTTP CONNECT for egress; it never silently falls back to a direct connection. Unsupported SOCKS/PAC modes stop with an explicit error. RelayDock model tests and GitHub updates use the same route selection. Request bodies, responses, prompts, headers, and keys are never logged. Keep RelayDock running while using this route.</p>
 
   <h2>Uninstall</h2>
   <p>Run <code>Uninstall RelayDock.command</code> through <code>/bin/zsh</code>. It removes the app, endpoints and Keychain API keys, generated OpenCode configuration, Cursor rollback files, Anthropic Bridge certificate/private key/trust, and the private local signing keychain. RelayDock never installs a root CA or changes the global system proxy.</p>

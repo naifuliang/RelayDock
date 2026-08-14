@@ -23,6 +23,7 @@ let package = Package(
             linkerSettings: [
                 .linkedFramework("Security"),
                 .linkedFramework("Network"),
+                .linkedFramework("CFNetwork"),
                 .linkedLibrary("sqlite3")
             ]
         ),

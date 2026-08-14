@@ -4,12 +4,12 @@ import Security
 
 enum KeychainStore {
     private static let service = "app.relaydock.credentials"
-    // A new account intentionally replaces the v1 item. Updating an old
+    // A new account intentionally replaces the v1/v2 items. Updating an old
     // Keychain item's bytes does not replace its signing ACL, which can make
     // macOS ask again after an app update. One approved read migrates the
     // complete vault into an item owned by RelayDock's current stable identity.
-    private static let vaultAccount = "credential-vault.v2"
-    private static let legacyVaultAccount = "credential-vault.v1"
+    private static let vaultAccount = "credential-vault.v3"
+    private static let legacyVaultAccounts = ["credential-vault.v2", "credential-vault.v1"]
     private static let legacyAccount = "gateway-api-key"
 
     enum Presence: Equatable {
@@ -32,9 +32,7 @@ enum KeychainStore {
         let migratedLegacyKey: Bool
     }
 
-    private struct CredentialVault: Codable, Equatable {
-        var keys: [String: String] = [:]
-    }
+    private typealias CredentialVault = KeychainVaultPersistence.Payload
 
     private enum AccessMode: Equatable {
         case nonInteractive
@@ -46,18 +44,26 @@ enum KeychainStore {
         // to use at launch because no credential bytes are returned.
         let vaultPresence = itemPresence(account: vaultAccount)
         if vaultPresence.mayExist { return vaultPresence }
-        let legacyVaultPresence = itemPresence(account: legacyVaultAccount)
-        if legacyVaultPresence.mayExist { return legacyVaultPresence }
+        for account in legacyVaultAccounts {
+            let legacyVaultPresence = itemPresence(account: account)
+            if legacyVaultPresence.mayExist { return legacyVaultPresence }
+        }
         let profilePresence = itemPresence(account: legacyProfileAccount(for: profileID))
         if profilePresence.mayExist { return profilePresence }
         return includeLegacyKey ? itemPresence(account: legacyAccount) : .absent
     }
 
     static func legacyCredentialsMayNeedMigration(profileIDs: [UUID], includeLegacyKey: Bool) -> Bool {
-        if !itemPresence(account: vaultAccount).mayExist,
-           itemPresence(account: legacyVaultAccount).mayExist { return true }
-        if includeLegacyKey, itemPresence(account: legacyAccount).mayExist { return true }
-        return profileIDs.contains { itemPresence(account: legacyProfileAccount(for: $0)).mayExist }
+        // Once the v3 vault exists and can be found without UI, old duplicate
+        // items are harmless cleanup residue. Never make them block normal
+        // operations or cause another authorization cycle.
+        let legacyMayExist = legacyVaultAccounts.contains(where: { itemPresence(account: $0).mayExist })
+            || (includeLegacyKey && itemPresence(account: legacyAccount).mayExist)
+            || profileIDs.contains { itemPresence(account: legacyProfileAccount(for: $0)).mayExist }
+        return KeychainMigrationPolicy.requiresRepair(
+            currentVault: itemPresence(account: vaultAccount),
+            legacyMayExist: legacyMayExist
+        )
     }
 
     /// Reads a credential only after a user action. If it still lives in a
@@ -69,6 +75,9 @@ enum KeychainStore {
         if let value = vault.keys[vaultKey] { return value }
 
         let oldAccount = legacyProfileAccount(for: profileID)
+        if itemPresence(account: oldAccount).mayExist {
+            throw KeychainMigrationError.migrationRequired
+        }
         if let value = try loadItem(account: oldAccount, mode: .userInitiated) {
             vault.keys[vaultKey] = value
             try saveVault(vault, mode: .userInitiated)
@@ -76,6 +85,9 @@ enum KeychainStore {
             return value
         }
 
+        if includeLegacyKey, itemPresence(account: legacyAccount).mayExist {
+            throw KeychainMigrationError.migrationRequired
+        }
         if includeLegacyKey,
            let value = try loadItem(account: legacyAccount, mode: .userInitiated) {
             vault.keys[vaultKey] = value
@@ -104,10 +116,27 @@ enum KeychainStore {
     }
 
     static func migrateCredentials(profileIDs: [UUID], legacyProfileID: UUID?) throws -> MigrationReport {
-        var vault = try loadCurrentVault(mode: .userInitiated)
+        var vault = try loadVault(mode: .userInitiated)
+        let originalVault = vault
+        let currentVaultExisted = itemPresence(account: vaultAccount).mayExist
         var migrated = 0
         var unresolved = 0
         var migratedLegacyKey = false
+        var importedLegacyVaultAccounts: [String] = []
+
+        for account in legacyVaultAccounts where itemPresence(account: account).mayExist {
+            do {
+                if let data = try loadItemData(account: account, mode: .userInitiated) {
+                    let legacyVault = try decodeVault(data)
+                    for (key, value) in legacyVault.keys where vault.keys[key] == nil {
+                        vault.keys[key] = value
+                    }
+                    importedLegacyVaultAccounts.append(account)
+                }
+            } catch {
+                unresolved += 1
+            }
+        }
 
         for profileID in profileIDs {
             let key = vaultKey(for: profileID)
@@ -136,9 +165,32 @@ enum KeychainStore {
             }
         }
 
-        try saveVault(vault, mode: .userInitiated)
-        guard try loadVault(mode: .nonInteractive) == vault else {
-            throw KeychainMigrationError.verificationFailed
+        // Do not commit a partial replacement vault. Any legacy read that was
+        // denied or failed leaves every old item untouched for a later retry.
+        guard unresolved == 0 else {
+            return MigrationReport(
+                migratedProfileCount: migrated,
+                unresolvedProfileCount: unresolved,
+                migratedLegacyKey: migratedLegacyKey
+            )
+        }
+
+        try KeychainMigrationTransaction.commit(
+            currentVaultExisted: currentVaultExisted,
+            save: { try saveVault(vault, mode: .userInitiated) },
+            verify: { try loadVault(mode: .nonInteractive) == vault },
+            restore: { try saveVault(originalVault, mode: .nonInteractive) },
+            remove: { try removeItem(account: vaultAccount, mode: .nonInteractive) },
+            verifyRollback: {
+                if currentVaultExisted {
+                    return try loadVault(mode: .nonInteractive) == originalVault
+                }
+                return !itemPresence(account: vaultAccount).mayExist
+            }
+        )
+
+        for account in importedLegacyVaultAccounts {
+            try? removeItem(account: account, mode: .nonInteractive)
         }
 
         for profileID in profileIDs where vault.keys[vaultKey(for: profileID)] != nil {
@@ -217,16 +269,10 @@ enum KeychainStore {
         if let data = try loadItemData(account: vaultAccount, mode: mode) {
             return try decodeVault(data)
         }
-        guard let legacyData = try loadItemData(account: legacyVaultAccount, mode: mode) else {
-            return CredentialVault()
+        if legacyVaultAccounts.contains(where: { itemPresence(account: $0).mayExist }) {
+            throw KeychainMigrationError.migrationRequired
         }
-        let legacyVault = try decodeVault(legacyData)
-        try saveVault(legacyVault, mode: mode)
-        guard try loadVault(mode: .nonInteractive) == legacyVault else {
-            throw KeychainMigrationError.verificationFailed
-        }
-        try? removeItem(account: legacyVaultAccount, mode: .nonInteractive)
-        return legacyVault
+        return CredentialVault()
     }
 
     private static func decodeVault(_ data: Data) throws -> CredentialVault {
@@ -238,12 +284,12 @@ enum KeychainStore {
     }
 
     private static func saveVault(_ vault: CredentialVault, mode: AccessMode) throws {
-        if vault.keys.isEmpty {
-            try removeItem(account: vaultAccount, mode: mode)
-            return
+        // Persist an empty verified vault as a tombstone. Older ACL-bound
+        // items may be impossible to delete non-interactively; removing the
+        // last v3 key must not make those residues look current again.
+        try KeychainVaultPersistence.persist(keys: vault.keys) { data in
+            try saveItemData(data, account: vaultAccount, mode: mode)
         }
-        let data = try JSONEncoder().encode(vault)
-        try saveItemData(data, account: vaultAccount, mode: mode)
     }
 
     private static func loadItem(account: String, mode: AccessMode) throws -> String? {
@@ -294,6 +340,63 @@ enum KeychainStore {
     }
 }
 
+enum KeychainMigrationPolicy {
+    static func requiresRepair(
+        currentVault: KeychainStore.Presence,
+        legacyMayExist: Bool
+    ) -> Bool {
+        !currentVault.mayExist && legacyMayExist
+    }
+}
+
+enum KeychainVaultPersistence {
+    struct Payload: Codable, Equatable {
+        var keys: [String: String] = [:]
+    }
+
+    static func persist(
+        keys: [String: String],
+        write: (Data) throws -> Void
+    ) throws {
+        // This intentionally writes even when keys is empty: the item is the
+        // tombstone that supersedes undeletable legacy ACL-bound entries.
+        try write(JSONEncoder().encode(Payload(keys: keys)))
+    }
+}
+
+enum KeychainMigrationTransaction {
+    static func commit(
+        currentVaultExisted: Bool,
+        save: () throws -> Void,
+        verify: () throws -> Bool,
+        restore: () throws -> Void,
+        remove: () throws -> Void,
+        verifyRollback: () throws -> Bool
+    ) throws {
+        try save()
+        do {
+            guard try verify() else { throw KeychainMigrationError.verificationFailed }
+        } catch {
+            do {
+                if currentVaultExisted {
+                    try restore()
+                } else {
+                    try remove()
+                }
+                guard try verifyRollback() else {
+                    throw KeychainMigrationError.verificationFailed
+                }
+            } catch let rollbackError {
+                throw KeychainMigrationError.verificationAndRollbackFailed(
+                    verification: error.localizedDescription,
+                    rollback: rollbackError.localizedDescription
+                )
+            }
+            throw error
+        }
+    }
+}
+
 struct KeychainError: LocalizedError {
     let status: OSStatus
     var errorDescription: String? {
@@ -302,14 +405,19 @@ struct KeychainError: LocalizedError {
 }
 
 enum KeychainMigrationError: LocalizedError {
+    case migrationRequired
     case verificationFailed
+    case verificationAndRollbackFailed(verification: String, rollback: String)
     case profilePersistenceFailed
     case invalidVault
     case invalidCredential
 
     var errorDescription: String? {
         switch self {
+        case .migrationRequired: return "请先点击“一次性修复 Keychain”，再读取或修改已保存的 API Key。"
         case .verificationFailed: return "迁移后的 API Key 无法从 Keychain 读取。"
+        case let .verificationAndRollbackFailed(verification, rollback):
+            return "新凭据仓库验证失败（\(verification)），且回滚未完成（\(rollback)）。旧凭据仍未删除。"
         case .profilePersistenceFailed: return "无法持久化多端点配置。"
         case .invalidVault: return "RelayDock Keychain 凭据仓库已损坏，未进行覆盖。"
         case .invalidCredential: return "旧 API Key 不是有效的 UTF-8 数据，未进行迁移。"

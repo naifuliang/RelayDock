@@ -74,7 +74,20 @@ final class OpenCodeIntegrationTests: XCTestCase {
         let directoryAttributes = try FileManager.default.attributesOfItem(atPath: root.path)
         XCTAssertEqual((directoryAttributes[.posixPermissions] as? NSNumber)?.intValue, 0o700)
         let openAIOptions = try XCTUnwrap(openAIConfig["options"] as? [String: Any])
-        XCTAssertEqual(openAIOptions["apiKey"] as? String, "{file:\(keyURL.path)}")
+        XCTAssertEqual(
+            openAIOptions["apiKey"] as? String,
+            "{file:./keys/\(openAI.id.uuidString.lowercased()).key}"
+        )
+        let rawConfig = try String(contentsOf: configURL, encoding: .utf8)
+        XCTAssertFalse(rawConfig.contains("\\/"), rawConfig)
+        XCTAssertTrue(rawConfig.contains("{file:./keys/"), rawConfig)
+        let references = fileReferences(in: rawConfig)
+        XCTAssertEqual(references.count, 2)
+        for reference in references {
+            XCTAssertTrue(reference.hasPrefix("./keys/"), reference)
+            let resolved = configURL.deletingLastPathComponent().appendingPathComponent(reference)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: resolved.standardized.path), resolved.path)
+        }
     }
 
     func testAddsV1ToUnversionedOpenAIAndAnthropicGatewayRoots() throws {
@@ -143,8 +156,7 @@ final class OpenCodeIntegrationTests: XCTestCase {
         let options = try XCTUnwrap(
             (providers[anthropic.providerID] as? [String: Any])?["options"] as? [String: Any]
         )
-        let keyURL = root.appendingPathComponent("keys/\(anthropic.id.uuidString.lowercased()).key")
-        let keyReference = "{file:\(keyURL.path)}"
+        let keyReference = "{file:./keys/\(anthropic.id.uuidString.lowercased()).key}"
         XCTAssertEqual(options["apiKey"] as? String, keyReference)
         XCTAssertNil(options["authToken"])
         let headers = try XCTUnwrap(options["headers"] as? [String: String])
@@ -153,7 +165,7 @@ final class OpenCodeIntegrationTests: XCTestCase {
         )
         XCTAssertEqual(
             headers["Authorization"],
-            "{file:\(bearerURL.path)}"
+            "{file:./keys/\(anthropic.id.uuidString.lowercased()).bearer}"
         )
         XCTAssertEqual(
             try String(contentsOf: bearerURL, encoding: .utf8),
@@ -167,6 +179,19 @@ final class OpenCodeIntegrationTests: XCTestCase {
         XCTAssertNotNil(officialOptions["apiKey"])
         XCTAssertNil(officialOptions["authToken"])
         XCTAssertNil(officialOptions["headers"])
+
+        let rawConfig = try String(contentsOf: configURL, encoding: .utf8)
+        XCTAssertFalse(rawConfig.contains("\\/"), rawConfig)
+        let references = fileReferences(in: rawConfig)
+        XCTAssertEqual(references.count, 3)
+        for reference in references {
+            XCTAssertTrue(reference.hasPrefix("./keys/"), reference)
+            let resolved = configURL.deletingLastPathComponent()
+                .appendingPathComponent(reference).standardized
+            XCTAssertTrue(FileManager.default.fileExists(atPath: resolved.path), resolved.path)
+            let attributes = try FileManager.default.attributesOfItem(atPath: resolved.path)
+            XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+        }
     }
 
     func testSkipsDisabledProfilesAndModels() throws {
@@ -225,5 +250,14 @@ final class OpenCodeIntegrationTests: XCTestCase {
         ))
         XCTAssertEqual(try Data(contentsOf: configURL), originalConfig)
         XCTAssertEqual(try String(contentsOf: originalKeyURL, encoding: .utf8), "working-secret")
+    }
+
+    private func fileReferences(in rawConfig: String) -> [String] {
+        let expression = try! NSRegularExpression(pattern: #"\{file:([^}]+)\}"#)
+        let range = NSRange(rawConfig.startIndex..., in: rawConfig)
+        return expression.matches(in: rawConfig, range: range).compactMap { match in
+            guard let pathRange = Range(match.range(at: 1), in: rawConfig) else { return nil }
+            return String(rawConfig[pathRange])
+        }
     }
 }

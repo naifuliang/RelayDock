@@ -26,6 +26,7 @@ final class AnthropicBridgeProxy: @unchecked Sendable {
 
     private let route: AnthropicBridgeRoute
     private let material: BridgeCertificateMaterial
+    private let upstreamProxyResolver: UpstreamProxyResolver
     private let onEvent: EventHandler
     private let onState: StateHandler
     private let lock = NSLock()
@@ -36,11 +37,13 @@ final class AnthropicBridgeProxy: @unchecked Sendable {
     init(
         route: AnthropicBridgeRoute,
         material: BridgeCertificateMaterial,
+        upstreamProxyResolver: UpstreamProxyResolver = .direct,
         onEvent: @escaping EventHandler,
         onState: @escaping StateHandler
     ) {
         self.route = route
         self.material = material
+        self.upstreamProxyResolver = upstreamProxyResolver
         self.onEvent = onEvent
         self.onState = onState
     }
@@ -71,10 +74,11 @@ final class AnthropicBridgeProxy: @unchecked Sendable {
                 .serverChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
                 .childChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
                 .childChannelOption(ChannelOptions.maxMessagesPerRead, value: 16)
-                .childChannelInitializer { [route, onEvent] channel in
+                .childChannelInitializer { [route, upstreamProxyResolver, onEvent] channel in
                     channel.pipeline.addHandler(BridgeConnectHandler(
                         serverTLSContext: serverTLSContext,
                         route: route,
+                        upstreamProxyResolver: upstreamProxyResolver,
                         onEvent: onEvent
                     ))
                 }
@@ -227,6 +231,7 @@ private final class BridgeConnectHandler: ChannelInboundHandler, RemovableChanne
     private static let maximumNegotiatingBytes = 256 * 1024
     private let serverTLSContext: NIOSSLContext
     private let route: AnthropicBridgeRoute
+    private let upstreamProxyResolver: UpstreamProxyResolver
     private let onEvent: AnthropicBridgeProxy.EventHandler
     private var pending: ByteBuffer?
     private var negotiatingBytes: ByteBuffer?
@@ -235,10 +240,12 @@ private final class BridgeConnectHandler: ChannelInboundHandler, RemovableChanne
     init(
         serverTLSContext: NIOSSLContext,
         route: AnthropicBridgeRoute,
+        upstreamProxyResolver: UpstreamProxyResolver,
         onEvent: @escaping AnthropicBridgeProxy.EventHandler
     ) {
         self.serverTLSContext = serverTLSContext
         self.route = route
+        self.upstreamProxyResolver = upstreamProxyResolver
         self.onEvent = onEvent
     }
 
@@ -293,6 +300,7 @@ private final class BridgeConnectHandler: ChannelInboundHandler, RemovableChanne
             return context.pipeline.configureHTTPServerPipeline().flatMap {
                 context.pipeline.addHandler(AnthropicHTTPBridgeHandler(
                     route: self.route,
+                    upstreamProxyResolver: self.upstreamProxyResolver,
                     onEvent: self.onEvent
                 ))
             }.flatMap {
@@ -328,9 +336,29 @@ private final class BridgeConnectHandler: ChannelInboundHandler, RemovableChanne
         request: ConnectRequestParser.Request,
         leftover: ByteBuffer
     ) {
-        let bootstrap = ClientBootstrap(group: context.eventLoop)
-            .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
-        bootstrap.connect(host: request.host, port: Int(request.port)).flatMap { outbound in
+        let route: UpstreamNetworkRoute
+        do {
+            let targetAuthority = request.host.contains(":")
+                ? "[\(request.host)]:\(request.port)"
+                : "\(request.host):\(request.port)"
+            guard let targetURL = URL(string: "https://\(targetAuthority)") else {
+                throw UpstreamProxyError.malformedConnectResponse
+            }
+            route = try upstreamProxyResolver.route(to: targetURL)
+        } catch {
+            onEvent(ProxyEvent(
+                timestamp: Date(), host: request.host, port: request.port,
+                kind: .failed, detail: error.localizedDescription
+            ))
+            context.close(promise: nil)
+            return
+        }
+        NIOUpstreamConnector.connect(
+            targetHost: request.host,
+            targetPort: Int(request.port),
+            route: route,
+            eventLoop: context.eventLoop
+        ).flatMap { outbound in
             outbound.pipeline.addHandler(RawRelayHandler(peer: context.channel)).map { outbound }
         }.flatMap { outbound in
             context.pipeline.addHandler(RawRelayHandler(peer: outbound), position: .after(self)).flatMap {
@@ -418,6 +446,7 @@ private final class AnthropicHTTPBridgeHandler: ChannelInboundHandler {
 
     private static let maximumBufferedBodyBytes = 16 * 1024 * 1024
     private let route: AnthropicBridgeRoute
+    private let upstreamProxyResolver: UpstreamProxyResolver
     private let onEvent: AnthropicBridgeProxy.EventHandler
     private var upstream: Channel?
     private var pendingParts: [HTTPClientRequestPart] = []
@@ -426,9 +455,11 @@ private final class AnthropicHTTPBridgeHandler: ChannelInboundHandler {
 
     init(
         route: AnthropicBridgeRoute,
+        upstreamProxyResolver: UpstreamProxyResolver,
         onEvent: @escaping AnthropicBridgeProxy.EventHandler
     ) {
         self.route = route
+        self.upstreamProxyResolver = upstreamProxyResolver
         self.onEvent = onEvent
     }
 
@@ -483,27 +514,29 @@ private final class AnthropicHTTPBridgeHandler: ChannelInboundHandler {
             configuration.applicationProtocols = ["http/1.1"]
             configuration.minimumTLSVersion = .tlsv12
             let sslContext = try NIOSSLContext(configuration: configuration)
-            // Keep connect completion and all handler state on the downstream
-            // channel's event loop. The bridge owns mutable request buffers and
-            // must never touch them from a second NIO loop.
-            let bootstrap = ClientBootstrap(group: downstream.eventLoop)
-                .channelInitializer { channel in
-                    do {
-                        try channel.pipeline.syncOperations.addHandler(NIOSSLClientHandler(
-                            context: sslContext,
-                            serverHostname: self.route.verifyUpstreamTLS ? host : nil
+            let targetURL = route.baseURL
+            let networkRoute = try upstreamProxyResolver.route(to: targetURL)
+            NIOUpstreamConnector.connect(
+                targetHost: host,
+                targetPort: port,
+                route: networkRoute,
+                eventLoop: downstream.eventLoop
+            ).flatMap { channel in
+                do {
+                    try channel.pipeline.syncOperations.addHandler(NIOSSLClientHandler(
+                        context: sslContext,
+                        serverHostname: self.route.verifyUpstreamTLS ? host : nil
+                    ))
+                    return channel.pipeline.addHTTPClientHandlers().flatMap {
+                        channel.pipeline.addHandler(UpstreamResponseRelay(
+                            downstream: downstream,
+                            onEvent: self.onEvent
                         ))
-                        return channel.pipeline.addHTTPClientHandlers().flatMap {
-                            channel.pipeline.addHandler(UpstreamResponseRelay(
-                                downstream: downstream,
-                                onEvent: self.onEvent
-                            ))
-                        }
-                    } catch {
-                        return channel.eventLoop.makeFailedFuture(error)
-                    }
+                    }.map { channel }
+                } catch {
+                    return channel.eventLoop.makeFailedFuture(error)
                 }
-            bootstrap.connect(host: host, port: port).whenComplete { result in
+            }.whenComplete { result in
                 switch result {
                 case let .success(channel):
                     self.upstream = channel
@@ -575,6 +608,175 @@ private final class AnthropicHTTPBridgeHandler: ChannelInboundHandler {
     func errorCaught(context: ChannelHandlerContext, error: Error) {
         upstream?.close(promise: nil)
         context.close(promise: nil)
+    }
+}
+
+private enum NIOUpstreamConnector {
+    static func connect(
+        targetHost: String,
+        targetPort: Int,
+        route: UpstreamNetworkRoute,
+        eventLoop: EventLoop
+    ) -> EventLoopFuture<Channel> {
+        let bootstrap = ClientBootstrap(group: eventLoop)
+            .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
+            .connectTimeout(.seconds(15))
+        switch route {
+        case .direct:
+            return bootstrap.connect(host: targetHost, port: targetPort)
+        case let .httpProxy(proxy):
+            return bootstrap.connect(host: proxy.host, port: proxy.port).flatMap { channel in
+                let promise = channel.eventLoop.makePromise(of: Void.self)
+                let handler = HTTPProxyConnectHandler(
+                    targetHost: targetHost,
+                    targetPort: targetPort,
+                    authorizationHeader: proxy.authorizationHeader,
+                    completion: promise
+                )
+                return channel.pipeline.addHandler(handler).flatMap {
+                    promise.futureResult
+                }.map { channel }.flatMapError { error in
+                    channel.close().flatMapThrowing { throw error }
+                }
+            }
+        }
+    }
+}
+
+enum HTTPProxyConnectResponseParser {
+    static let maximumHeaderBytes = 16 * 1024
+
+    enum Result: Equatable {
+        case incomplete
+        case established(leftover: Data)
+        case rejected(Int)
+        case malformed
+    }
+
+    static func parse(_ data: Data) -> Result {
+        guard let headerRange = data.range(of: Data("\r\n\r\n".utf8)) else {
+            return data.count > maximumHeaderBytes ? .malformed : .incomplete
+        }
+        guard headerRange.upperBound <= maximumHeaderBytes,
+              let header = String(data: data[..<headerRange.upperBound], encoding: .utf8),
+              let firstLine = header.components(separatedBy: "\r\n").first else {
+            return .malformed
+        }
+        let parts = firstLine.split(separator: " ")
+        guard parts.count >= 2, let status = Int(parts[1]) else { return .malformed }
+        guard (200..<300).contains(status) else { return .rejected(status) }
+        return .established(leftover: Data(data[headerRange.upperBound...]))
+    }
+}
+
+private final class HTTPProxyConnectHandler: ChannelInboundHandler, RemovableChannelHandler {
+    typealias InboundIn = ByteBuffer
+    typealias OutboundOut = ByteBuffer
+
+    private let targetHost: String
+    private let targetPort: Int
+    private let authorizationHeader: String?
+    private let completion: EventLoopPromise<Void>
+    private var buffer: ByteBuffer?
+    private var requestSent = false
+    private var completed = false
+    private var timeoutTask: Scheduled<Void>?
+
+    init(
+        targetHost: String,
+        targetPort: Int,
+        authorizationHeader: String?,
+        completion: EventLoopPromise<Void>
+    ) {
+        self.targetHost = targetHost
+        self.targetPort = targetPort
+        self.authorizationHeader = authorizationHeader
+        self.completion = completion
+    }
+
+    func handlerAdded(context: ChannelHandlerContext) {
+        timeoutTask = context.eventLoop.scheduleTask(in: .seconds(15)) {
+            self.finish(context: context, result: .failure(UpstreamProxyError.connectTimedOut))
+        }
+        if context.channel.isActive { sendRequest(context: context) }
+    }
+
+    func channelActive(context: ChannelHandlerContext) {
+        sendRequest(context: context)
+        context.fireChannelActive()
+    }
+
+    private func sendRequest(context: ChannelHandlerContext) {
+        guard !requestSent else { return }
+        requestSent = true
+        let authority = targetHost.contains(":") ? "[\(targetHost)]:\(targetPort)" : "\(targetHost):\(targetPort)"
+        var request = "CONNECT \(authority) HTTP/1.1\r\nHost: \(authority)\r\nProxy-Connection: keep-alive\r\n"
+        if let authorizationHeader {
+            request += "Proxy-Authorization: \(authorizationHeader)\r\n"
+        }
+        request += "\r\n"
+        context.writeAndFlush(wrapOutboundOut(context.channel.allocator.buffer(string: request)), promise: nil)
+    }
+
+    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+        var incoming = unwrapInboundIn(data)
+        if buffer == nil { buffer = context.channel.allocator.buffer(capacity: incoming.readableBytes) }
+        buffer?.writeBuffer(&incoming)
+        guard let buffer else { return }
+        let bytes = Data(buffer.readableBytesView)
+        switch HTTPProxyConnectResponseParser.parse(bytes) {
+        case .incomplete:
+            return
+        case .malformed:
+            finish(context: context, result: .failure(UpstreamProxyError.malformedConnectResponse))
+        case let .rejected(status):
+            finish(context: context, result: .failure(UpstreamProxyError.connectRejected(status)))
+        case let .established(leftoverData):
+            var leftover = context.channel.allocator.buffer(capacity: leftoverData.count)
+            leftover.writeBytes(leftoverData)
+            finish(context: context, result: .success(()), leftover: leftover)
+        }
+    }
+
+    private func finish(
+        context: ChannelHandlerContext,
+        result: Result<Void, Error>,
+        leftover: ByteBuffer? = nil
+    ) {
+        guard !completed else { return }
+        completed = true
+        timeoutTask?.cancel()
+        timeoutTask = nil
+        context.pipeline.removeHandler(self).whenComplete { removal in
+            switch (result, removal) {
+            case (.success, .success):
+                self.completion.succeed(())
+                if let leftover, leftover.readableBytes > 0 {
+                    // Promise callbacks install the TLS/raw relay handlers.
+                    // Replay on the next event-loop turn so the coalesced first
+                    // tunnel bytes cannot bypass that newly installed pipeline.
+                    context.eventLoop.execute {
+                        context.channel.pipeline.fireChannelRead(leftover)
+                    }
+                }
+            case let (.failure(error), _):
+                self.completion.fail(error)
+                context.close(promise: nil)
+            case let (.success, .failure(error)):
+                self.completion.fail(error)
+                context.close(promise: nil)
+            }
+        }
+    }
+
+    func errorCaught(context: ChannelHandlerContext, error: Error) {
+        finish(context: context, result: .failure(error))
+    }
+
+    func channelInactive(context: ChannelHandlerContext) {
+        if !completed {
+            finish(context: context, result: .failure(UpstreamProxyError.malformedConnectResponse))
+        }
     }
 }
 

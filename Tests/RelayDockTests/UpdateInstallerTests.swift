@@ -21,7 +21,8 @@ final class UpdateInstallerTests: XCTestCase {
                 try? FileManager.default.removeItem(at: support)
             }
         }
-        let expectedVersion = ProcessInfo.processInfo.environment["RELAYDOCK_UPDATE_TEST_VERSION"] ?? "0.3.1"
+        let expectedVersion = try ProcessInfo.processInfo.environment["RELAYDOCK_UPDATE_TEST_VERSION"]
+            ?? currentReleaseVersion()
         let prepared = try UpdateInstaller.prepare(
             dmgURL: URL(fileURLWithPath: dmgPath),
             expectedVersion: expectedVersion,
@@ -46,6 +47,17 @@ final class UpdateInstallerTests: XCTestCase {
         let data = try Data(contentsOf: appURL.appendingPathComponent("Contents/Info.plist"))
         let plist = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
         return plist?["CFBundleShortVersionString"] as? String
+    }
+
+    private func currentReleaseVersion() throws -> String {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let infoURL = repositoryRoot.appendingPathComponent("support/Info.plist")
+        let data = try Data(contentsOf: infoURL)
+        let plist = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+        return try XCTUnwrap(plist?["CFBundleShortVersionString"] as? String)
     }
 
     private func codesignStatus(for appURL: URL) throws -> Int32 {
