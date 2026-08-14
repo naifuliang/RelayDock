@@ -5,14 +5,14 @@ enum GitHubUpdater {
     static let releasesAPI = URL(string: "https://api.github.com/repos/naifuliang/RelayDock/releases/latest")!
     static let latestChecksumsURL = URL(string: "https://github.com/naifuliang/RelayDock/releases/latest/download/SHA256SUMS")!
 
-    static func fetchLatestRelease(session: URLSession = .shared) async throws -> GitHubRelease {
+    static func fetchLatestRelease(session: URLSession? = nil) async throws -> GitHubRelease {
         var request = URLRequest(url: releasesAPI)
         request.timeoutInterval = 20
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("RelayDock-macOS", forHTTPHeaderField: "User-Agent")
         request.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
         do {
-            let (data, response) = try await session.data(for: request)
+            let (data, response) = try await data(for: request, session: session)
             if let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
                 return try JSONDecoder().decode(GitHubRelease.self, from: data)
             }
@@ -64,7 +64,7 @@ enum GitHubUpdater {
 
     static func downloadDMG(
         from release: GitHubRelease,
-        session: URLSession = .shared,
+        session: URLSession? = nil,
         downloadsDirectory: URL? = nil
     ) async throws -> URL {
         let expectedAssetName = "RelayDock-\(release.version).dmg"
@@ -80,7 +80,9 @@ enum GitHubUpdater {
         var request = URLRequest(url: asset.browserDownloadURL)
         request.timeoutInterval = 300
         request.setValue("RelayDock-macOS", forHTTPHeaderField: "User-Agent")
-        let (temporaryURL, response) = try await session.download(for: request)
+        let ownedSession = try session ?? RelayDockNetwork.session(for: request.url!)
+        defer { if session == nil { ownedSession.invalidateAndCancel() } }
+        let (temporaryURL, response) = try await ownedSession.download(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw UpdateError.invalidResponse
         }
@@ -114,15 +116,24 @@ enum GitHubUpdater {
         return directory.appendingPathComponent("\(base)-\(UUID().uuidString).\(pathExtension)")
     }
 
-    private static func fetchLatestReleaseFromChecksums(session: URLSession) async throws -> GitHubRelease {
+    private static func fetchLatestReleaseFromChecksums(session: URLSession?) async throws -> GitHubRelease {
         var request = URLRequest(url: latestChecksumsURL)
         request.timeoutInterval = 20
         request.setValue("RelayDock-macOS", forHTTPHeaderField: "User-Agent")
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await data(for: request, session: session)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw UpdateError.invalidResponse
         }
         return try releaseFromChecksums(data)
+    }
+
+    private static func data(
+        for request: URLRequest,
+        session: URLSession?
+    ) async throws -> (Data, URLResponse) {
+        let ownedSession = try session ?? RelayDockNetwork.session(for: request.url!)
+        defer { if session == nil { ownedSession.invalidateAndCancel() } }
+        return try await ownedSession.data(for: request)
     }
 }
 

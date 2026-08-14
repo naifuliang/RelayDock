@@ -80,22 +80,20 @@ enum OpenCodeIntegration {
             if !apiKey.isEmpty {
                 let keyName = "\(profile.id.uuidString.lowercased()).key"
                 let stagedKeyURL = keysDirectory.appendingPathComponent(keyName)
-                let finalKeyURL = directory.appendingPathComponent("keys/\(keyName)")
                 try Data(apiKey.utf8).write(to: stagedKeyURL, options: .atomic)
                 try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: stagedKeyURL.path)
-                options["apiKey"] = "{file:\(finalKeyURL.path)}"
+                options["apiKey"] = "{file:./keys/\(keyName)}"
                 if profile.provider == .anthropic,
                    EndpointValidator.isThirdPartyAnthropicGateway(normalizedURL) {
                     let bearerName = "\(profile.id.uuidString.lowercased()).bearer"
                     let stagedBearerURL = keysDirectory.appendingPathComponent(bearerName)
-                    let finalBearerURL = directory.appendingPathComponent("keys/\(bearerName)")
                     try Data("Bearer \(apiKey)".utf8).write(to: stagedBearerURL, options: .atomic)
                     try fileManager.setAttributes(
                         [.posixPermissions: 0o600],
                         ofItemAtPath: stagedBearerURL.path
                     )
                     options["headers"] = [
-                        "Authorization": "{file:\(finalBearerURL.path)}"
+                        "Authorization": "{file:./keys/\(bearerName)}"
                     ]
                 }
             }
@@ -123,7 +121,14 @@ enum OpenCodeIntegration {
             "$schema": "https://opencode.ai/config.json",
             "provider": providers
         ]
-        let data = try JSONSerialization.data(withJSONObject: document, options: [.prettyPrinted, .sortedKeys])
+        // OpenCode substitutes `{file:...}` tokens in the raw JSON text before
+        // parsing it. Escaped slashes (`\/`) therefore become literal backslashes
+        // in its path resolver. Keep slash characters unescaped and use paths
+        // relative to this generated config directory.
+        let data = try JSONSerialization.data(
+            withJSONObject: document,
+            options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        )
         _ = try JSONSerialization.jsonObject(with: data)
         let stagedConfigURL = stagingDirectory.appendingPathComponent("opencode.json")
         try data.write(to: stagedConfigURL, options: .atomic)

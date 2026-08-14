@@ -56,6 +56,7 @@ final class AppModel: ObservableObject {
     private static let cursorOpenAIProfileKey = "cursorOpenAIProfileID"
     private static let cursorAnthropicProfileKey = "cursorAnthropicProfileID"
     private static let credentialMigrationCompleteKey = "credentialVaultMigrationComplete.v1"
+    private static let credentialRepairPendingKey = "credentialVaultRepairPending.v3"
     private static let legacyCredentialProfileKey = "legacyCredentialProfileID.v1"
 
     init(
@@ -131,8 +132,8 @@ final class AppModel: ObservableObject {
             initialID,
             legacyProfileCredentialID == initialID
         ).mayExist
-        credentialMigrationAvailable = !defaults.bool(forKey: Self.credentialMigrationCompleteKey)
-            && credentialStore.migrationNeeded(initialProfiles.map(\.id), legacyProfileCredentialID != nil)
+        credentialMigrationAvailable = defaults.bool(forKey: Self.credentialRepairPendingKey)
+            || credentialStore.migrationNeeded(initialProfiles.map(\.id), legacyProfileCredentialID != nil)
         automaticUpdateChecks = defaults.object(forKey: Self.automaticUpdatesKey) as? Bool ?? true
         let savedCursorOpenAIID = defaults.string(forKey: Self.cursorOpenAIProfileKey).flatMap(UUID.init(uuidString:))
         let savedCursorAnthropicID = defaults.string(forKey: Self.cursorAnthropicProfileKey).flatMap(UUID.init(uuidString:))
@@ -214,6 +215,10 @@ final class AppModel: ObservableObject {
     }
 
     func loadSelectedCredential() {
+        guard !credentialMigrationAvailable else {
+            statusMessage = "请先点击“一次性修复 Keychain”；RelayDock 不会在普通操作中读取旧凭据"
+            return
+        }
         do {
             let key = try credentialStore.loadForUserAction(
                 selectedProfileID,
@@ -232,17 +237,19 @@ final class AppModel: ObservableObject {
     }
 
     func migrateSavedCredentials() {
+        defaults.set(true, forKey: Self.credentialRepairPendingKey)
         do {
             let report = try credentialStore.migrate(profiles.map(\.id), legacyProfileCredentialID)
             if report.unresolvedProfileCount == 0 {
                 legacyProfileCredentialID = nil
                 defaults.removeObject(forKey: Self.legacyCredentialProfileKey)
                 defaults.set(true, forKey: Self.credentialMigrationCompleteKey)
+                defaults.removeObject(forKey: Self.credentialRepairPendingKey)
             }
             refreshCredentialMigrationState()
             resetCredentialField(for: selectedProfileID)
             if report.unresolvedProfileCount == 0 {
-                statusMessage = "旧凭据迁移完成：\(report.migratedProfileCount + (report.migratedLegacyKey ? 1 : 0)) 个 Key 已写入统一凭据仓库"
+                statusMessage = "Keychain 修复完成；已保存的 Key 已写入当前签名拥有的新凭据仓库"
             } else {
                 statusMessage = "已迁移部分凭据；\(report.unresolvedProfileCount) 个旧 Key 未获授权并保持原状"
             }
@@ -281,6 +288,10 @@ final class AppModel: ObservableObject {
 
     func deleteSelectedProfile() {
         cancelEndpointOperations()
+        guard !credentialMigrationAvailable else {
+            statusMessage = "请先点击“一次性修复 Keychain”，再删除保存过凭据的 Endpoint"
+            return
+        }
         guard profiles.count > 1,
               let index = profiles.firstIndex(where: { $0.id == selectedProfileID }) else {
             statusMessage = "至少需要保留一个端点"
@@ -343,6 +354,9 @@ final class AppModel: ObservableObject {
             let normalizedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
             let shouldWriteCredential = credentialLoaded || !normalizedKey.isEmpty
             if shouldWriteCredential {
+                guard !credentialMigrationAvailable else {
+                    throw KeychainMigrationError.migrationRequired
+                }
                 try credentialStore.save(normalizedKey, selectedProfileID)
             }
             profiles[index] = draftProfile
@@ -412,7 +426,9 @@ final class AppModel: ObservableObject {
                 var pageCount = 0
                 repeat {
                     let request = try ModelAPIRequestFactory.catalog(profile: profile, apiKey: key, afterID: afterID)
-                    let (data, response) = try await URLSession.shared.data(for: request)
+                    let session = try RelayDockNetwork.session(for: request.url!)
+                    defer { session.invalidateAndCancel() }
+                    let (data, response) = try await session.data(for: request)
                     try Task.checkCancellation()
                     guard endpointOperationToken == operationToken else { return }
                     guard let http = response as? HTTPURLResponse else { throw EndpointError.invalidResponse }
@@ -494,13 +510,15 @@ final class AppModel: ObservableObject {
                         modelID: modelID,
                         apiKey: key
                     )
-                    var (responseData, response) = try await URLSession.shared.data(for: request)
+                    let session = try RelayDockNetwork.session(for: request.url!)
+                    defer { session.invalidateAndCancel() }
+                    var (responseData, response) = try await session.data(for: request)
                     if let http = response as? HTTPURLResponse,
                        Self.shouldRetryLegacyTokenParameter(data: responseData, statusCode: http.statusCode),
                        let fallback = try ModelAPIRequestFactory.legacyTokenFallback(
                            profile: profile, modelID: modelID, apiKey: key
                        ) {
-                        (responseData, response) = try await URLSession.shared.data(for: fallback)
+                        (responseData, response) = try await session.data(for: fallback)
                     }
                     try Task.checkCancellation()
                     guard endpointOperationToken == operationToken else { return }
@@ -805,6 +823,11 @@ final class AppModel: ObservableObject {
                 if let anthropicProfile, let anthropicKey, let material, let nodeMaterial,
                    let baseURL = EndpointValidator.normalizedURL(from: anthropicProfile.baseURL) {
                     let route = try AnthropicBridgeRoute(baseURL: baseURL, apiKey: anthropicKey)
+                    let upstreamProxyResolver = UpstreamProxyResolver()
+                    // Resolve before writing/launching any more state. Unsupported
+                    // local proxy modes fail closed instead of silently bypassing
+                    // the user's existing egress path.
+                    _ = try upstreamProxyResolver.route(to: baseURL)
                     let eventHandler: AnthropicBridgeProxy.EventHandler = { [weak self] event in
                         Task { @MainActor in
                             self?.events.insert(event, at: 0)
@@ -814,6 +837,7 @@ final class AppModel: ObservableObject {
                     let bridge = AnthropicBridgeProxy(
                         route: route,
                         material: material,
+                        upstreamProxyResolver: upstreamProxyResolver,
                         onEvent: eventHandler,
                         onState: { [weak self] running, port in
                             Task { @MainActor in
@@ -825,6 +849,7 @@ final class AppModel: ObservableObject {
                     let nodeBridge = AnthropicBridgeProxy(
                         route: route,
                         material: nodeMaterial,
+                        upstreamProxyResolver: upstreamProxyResolver,
                         onEvent: eventHandler,
                         onState: { _, _ in }
                     )
@@ -1076,6 +1101,7 @@ final class AppModel: ObservableObject {
         defaults.removeObject(forKey: Self.lastUpdateOutcomeKey)
         defaults.removeObject(forKey: Self.lastCheckedAppVersionKey)
         defaults.removeObject(forKey: Self.credentialMigrationCompleteKey)
+        defaults.removeObject(forKey: Self.credentialRepairPendingKey)
         defaults.removeObject(forKey: Self.legacyCredentialProfileKey)
         let profile = GatewayProfile()
         profiles = [profile]
@@ -1134,11 +1160,14 @@ final class AppModel: ObservableObject {
     }
 
     private func refreshCredentialMigrationState() {
-        credentialMigrationAvailable = !defaults.bool(forKey: Self.credentialMigrationCompleteKey)
-            && credentialStore.migrationNeeded(profiles.map(\.id), legacyProfileCredentialID != nil)
+        credentialMigrationAvailable = defaults.bool(forKey: Self.credentialRepairPendingKey)
+            || credentialStore.migrationNeeded(profiles.map(\.id), legacyProfileCredentialID != nil)
     }
 
     private func credentialForUserAction(profileID: UUID) throws -> String {
+        guard !credentialMigrationAvailable else {
+            throw KeychainMigrationError.migrationRequired
+        }
         if profileID == selectedProfileID, credentialLoaded {
             return apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         }

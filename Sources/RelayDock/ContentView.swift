@@ -25,7 +25,6 @@ struct ContentView: View {
                     endpointConfigurationCard
                     launcherCard
                     updateCard
-                    probeCard
                     diagnosticsCard
                     footer
                 }
@@ -143,12 +142,12 @@ struct ContentView: View {
                         Image(systemName: "key.horizontal.fill")
                             .foregroundStyle(.orange)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("发现旧版 Keychain 凭据").fontWeight(.semibold)
-                            Text("RelayDock 启动时不会读取它们。点击迁移后，macOS 可能要求你对旧凭据授权；验证成功前不会删除原数据。")
+                            Text("需要一次性修复 Keychain 访问").fontWeight(.semibold)
+                            Text("更新后的 App 不会在同步模型等普通操作中读取旧凭据。点击修复后，macOS 可能授权一次；新仓库验证成功前不会删除原数据。")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Button("一次性迁移", action: model.migrateSavedCredentials)
+                        Button("一次性修复 Keychain", action: model.migrateSavedCredentials)
                             .buttonStyle(.borderedProminent)
                     }
                     .padding(12)
@@ -433,6 +432,11 @@ struct ContentView: View {
             Text("OpenAI Compatible：写入 OpenAI Key、Override Base URL 和已验证模型。Anthropic：只写 Claude Key；api.anthropic.com 由本地 Bridge 使用限定域名证书转发到所选 Endpoint。")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            Label(
+                "出口会继承启动时已有的 HTTP_PROXY / HTTPS_PROXY / ALL_PROXY；否则遵循 macOS 默认代理和例外规则。不会因启用 Bridge 改成直接出网。",
+                systemImage: "arrow.triangle.branch"
+            )
+            .font(.caption).foregroundStyle(.secondary)
 
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
                 GridRow {
@@ -582,33 +586,6 @@ struct ContentView: View {
         }
     }
 
-    private var probeCard: some View {
-        cleanCard {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Label("Cursor Network Probe", systemImage: "scope").font(.headline)
-                    Spacer()
-                    Text(model.verdict.title).font(.callout).foregroundStyle(verdictColor)
-                }
-                Text(model.verdict.explanation).font(.callout).foregroundStyle(.secondary)
-                HStack {
-                    if model.proxyRunning {
-                        Label("127.0.0.1:\(model.proxyPort ?? 0)", systemImage: "dot.radiowaves.left.and.right")
-                            .foregroundStyle(.green)
-                        Button("停止", role: .destructive) { model.stopProbe() }
-                    } else {
-                        Button("启动探测代理") { model.startProbe() }
-                    }
-                    Spacer()
-                    Button("启动探测并打开 Cursor") { model.launchCursor(restart: false) }
-                        .disabled(model.isBusy)
-                    Button("重启并探测") { model.launchCursor(restart: true) }
-                        .disabled(model.isBusy)
-                }
-            }
-        }
-    }
-
     private var diagnosticsCard: some View {
         cleanCard {
             VStack(alignment: .leading, spacing: 8) {
@@ -723,13 +700,6 @@ struct ContentView: View {
         self.pendingNavigation = nil
     }
 
-    private var verdictColor: Color {
-        switch model.verdict {
-        case .waiting: return .secondary
-        case .directAnthropic: return .green
-        case .cursorBackendOnly: return .orange
-        }
-    }
 }
 
 struct MenuBarView: View {
@@ -745,14 +715,6 @@ struct MenuBarView: View {
         Text("Endpoint：\(model.profiles.filter(\.isEnabled).count) 个已启用")
         Button("打开 OpenCode") { model.configureOpenCode(launch: true) }.disabled(!model.openCodeInstalled)
         Button("配置并打开 Cursor") { model.configureAndLaunchCursor() }.disabled(!model.cursorInstalled)
-        Divider()
-        Text(model.proxyRunning ? "探测代理：127.0.0.1:\(model.proxyPort ?? 0)" : "探测代理：已停止")
-        if model.proxyRunning {
-            Button("通过代理打开 Cursor") { model.launchCursor(restart: false) }
-            Button("停止探测") { model.stopProbe() }
-        } else {
-            Button("启动探测") { model.startProbe() }
-        }
         Divider()
         Button(model.isCheckingForUpdates ? "正在检查更新…" : "检查更新") {
             Task { await model.checkForUpdates() }

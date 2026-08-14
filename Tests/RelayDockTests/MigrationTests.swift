@@ -78,7 +78,7 @@ final class MigrationTests: XCTestCase {
     }
 
     @MainActor
-    func testLegacyCredentialTargetSurvivesRestartWithoutReadingSecret() throws {
+    func testLegacyCredentialRequiresExplicitRepairBeforeReadingSecret() throws {
         let suiteName = "MigrationTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -101,9 +101,119 @@ final class MigrationTests: XCTestCase {
         XCTAssertEqual(loadCount, 0)
 
         relaunched.loadSelectedCredential()
-        XCTAssertEqual(loadCount, 1)
-        XCTAssertTrue(includedLegacyKey)
-        XCTAssertEqual(relaunched.apiKey, "legacy-secret")
+        XCTAssertEqual(loadCount, 0)
+        XCTAssertFalse(includedLegacyKey)
+        XCTAssertTrue(relaunched.apiKey.isEmpty)
+        XCTAssertTrue(relaunched.statusMessage.contains("一次性修复 Keychain"))
+    }
+
+    @MainActor
+    func testActualLegacyPresenceOverridesStaleMigrationCompleteDefault() {
+        let suiteName = "MigrationTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: "credentialVaultMigrationComplete.v1")
+        var loadCount = 0
+        var store = makeCredentialStore(presence: .protected) { _, _ in
+            loadCount += 1
+            return "secret"
+        }
+        store.migrationNeeded = { _, _ in true }
+
+        let model = AppModel(
+            defaults: defaults,
+            scheduleAutomaticUpdateCheck: false,
+            credentialStore: store
+        )
+
+        XCTAssertTrue(model.credentialMigrationAvailable)
+        model.loadSelectedCredential()
+        XCTAssertEqual(loadCount, 0)
+    }
+
+    @MainActor
+    func testSyncModelsDoesNotReadLegacyCredentialBeforeExplicitRepair() {
+        let suiteName = "MigrationTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var loadCount = 0
+        var store = makeCredentialStore(presence: .protected) { _, _ in
+            loadCount += 1
+            return "secret"
+        }
+        store.migrationNeeded = { _, _ in true }
+        let model = AppModel(
+            defaults: defaults,
+            scheduleAutomaticUpdateCheck: false,
+            credentialStore: store
+        )
+        model.draftProfile.baseURL = "https://gateway.example/v1"
+
+        model.testEndpoint()
+
+        XCTAssertEqual(loadCount, 0)
+        XCTAssertTrue(model.statusMessage.contains("一次性修复 Keychain"))
+        XCTAssertFalse(model.isBusy)
+    }
+
+    @MainActor
+    func testSuccessfulRepairRefreshesActualMigrationState() {
+        let suiteName = "MigrationTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var needsRepair = true
+        var store = makeCredentialStore(presence: .protected)
+        store.migrationNeeded = { _, _ in needsRepair }
+        store.migrate = { _, _ in
+            needsRepair = false
+            return .init(migratedProfileCount: 1, unresolvedProfileCount: 0, migratedLegacyKey: false)
+        }
+        let model = AppModel(
+            defaults: defaults,
+            scheduleAutomaticUpdateCheck: false,
+            credentialStore: store
+        )
+        XCTAssertTrue(model.credentialMigrationAvailable)
+
+        model.migrateSavedCredentials()
+
+        XCTAssertFalse(model.credentialMigrationAvailable)
+        XCTAssertTrue(model.statusMessage.contains("Keychain 修复完成"))
+    }
+
+    @MainActor
+    func testRepairFailurePersistsPendingStateAcrossRestart() {
+        let suiteName = "MigrationTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var store = makeCredentialStore(presence: .protected)
+        store.migrationNeeded = { _, _ in true }
+        store.migrate = { _, _ in throw TestFailure.expected }
+        let model = AppModel(defaults: defaults, scheduleAutomaticUpdateCheck: false, credentialStore: store)
+
+        model.migrateSavedCredentials()
+
+        store.migrationNeeded = { _, _ in false }
+        let relaunched = AppModel(defaults: defaults, scheduleAutomaticUpdateCheck: false, credentialStore: store)
+        XCTAssertTrue(relaunched.credentialMigrationAvailable)
+    }
+
+    @MainActor
+    func testSavingNewKeyIsBlockedWhileAnyLegacyCredentialNeedsRepair() {
+        let suiteName = "MigrationTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var saveCount = 0
+        var store = makeCredentialStore(presence: .protected)
+        store.migrationNeeded = { _, _ in true }
+        store.save = { _, _ in saveCount += 1 }
+        let model = AppModel(defaults: defaults, scheduleAutomaticUpdateCheck: false, credentialStore: store)
+        model.draftProfile.baseURL = "https://gateway.example/v1"
+        model.apiKey = "new-secret"
+
+        XCTAssertFalse(model.saveSelectedProfile())
+        XCTAssertEqual(saveCount, 0)
+        XCTAssertTrue(model.statusMessage.contains("一次性修复 Keychain"))
     }
 
     func testMigrationDoesNotPersistOrDeleteLegacyKeyWhenNewKeySaveFails() {
@@ -135,6 +245,70 @@ final class MigrationTests: XCTestCase {
             removeLegacyKey: { throw TestFailure.expected }
         )
         XCTAssertEqual(migrated, "legacy-secret")
+    }
+
+    func testVaultTransactionRemovesNewVaultWhenVerificationFails() {
+        var storedValue: String?
+
+        XCTAssertThrowsError(try KeychainMigrationTransaction.commit(
+            currentVaultExisted: false,
+            save: { storedValue = "new-vault" },
+            verify: { false },
+            restore: { XCTFail("A newly created vault must be removed, not restored") },
+            remove: { storedValue = nil },
+            verifyRollback: { storedValue == nil }
+        ))
+
+        XCTAssertNil(storedValue)
+    }
+
+    func testVaultTransactionRestoresExistingVaultWhenVerificationThrows() {
+        var storedValue: String? = "original-vault"
+
+        XCTAssertThrowsError(try KeychainMigrationTransaction.commit(
+            currentVaultExisted: true,
+            save: { storedValue = "replacement-vault" },
+            verify: { throw TestFailure.expected },
+            restore: { storedValue = "original-vault" },
+            remove: { XCTFail("An existing vault must be restored, not removed") },
+            verifyRollback: { storedValue == "original-vault" }
+        ))
+
+        XCTAssertEqual(storedValue, "original-vault")
+    }
+
+    func testVaultTransactionReportsVerificationAndRollbackFailure() {
+        XCTAssertThrowsError(try KeychainMigrationTransaction.commit(
+            currentVaultExisted: false,
+            save: {},
+            verify: { false },
+            restore: {},
+            remove: { throw TestFailure.expected },
+            verifyRollback: { false }
+        )) { error in
+            guard case KeychainMigrationError.verificationAndRollbackFailed = error else {
+                return XCTFail("Expected the combined verification/rollback error, got \(error)")
+            }
+        }
+    }
+
+    func testEmptyVaultIsPersistedAsTombstoneAndSuppressesLegacyResidue() throws {
+        var persistedData: Data?
+        try KeychainVaultPersistence.persist(keys: [:]) { persistedData = $0 }
+
+        let payload = try JSONDecoder().decode(
+            KeychainVaultPersistence.Payload.self,
+            from: XCTUnwrap(persistedData)
+        )
+        XCTAssertTrue(payload.keys.isEmpty)
+        XCTAssertFalse(KeychainMigrationPolicy.requiresRepair(
+            currentVault: .present,
+            legacyMayExist: true
+        ))
+        XCTAssertTrue(KeychainMigrationPolicy.requiresRepair(
+            currentVault: .absent,
+            legacyMayExist: true
+        ))
     }
 }
 

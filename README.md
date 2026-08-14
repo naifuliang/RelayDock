@@ -22,6 +22,19 @@ The icon is hand-drawn from deterministic vector geometry. Edit
 `Assets/AppIcon.svg` or the matching dimensions in `scripts/render-icon.swift`;
 `scripts/build-icon.sh` renders the PNG and ICNS assets.
 
+Version 0.5.5 fixes OpenCode Desktop 1.18 file-secret substitution. Generated
+configs now keep JSON slashes unescaped and use config-relative
+`{file:./keys/...}` references, matching OpenCode's raw-text preprocessing
+order while retaining mode-`0600` key and Bearer files. It also repairs the
+remaining update-time Keychain ACL issue with a new v3 credential vault:
+ordinary actions never open an old item, and the UI offers one explicit,
+fail-closed repair before model sync is allowed. Cursor's Bridge now chains
+both Anthropic and non-Anthropic egress through the pre-existing
+`HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` or macOS default HTTP proxy instead of bypassing it;
+unsupported SOCKS/PAC modes fail closed. RelayDock's model tests and GitHub
+updater use the same route selection. The obsolete standalone Network Probe
+card has been removed from the primary UI.
+
 Version 0.5.4 routes Cursor's Node-based AI traffic through a dedicated local
 Bridge in addition to Chromium's proxy path. Its Node-only TLS issuer is passed
 only to the Cursor process through `NODE_EXTRA_CA_CERTS`, is never installed in
@@ -141,10 +154,13 @@ certificate/private key and signing keychain. It also cleans an old search-list
 entry left by earlier releases.
 
 RelayDock never reads API Key bytes at startup or when switching endpoints.
-When older per-endpoint Keychain items exist, the app offers an explicit
-one-time migration. macOS may request authorization for those old items only
-after the user starts that migration; RelayDock writes and verifies the unified
-vault before attempting non-interactive cleanup. A damaged local signing
+When an older Keychain vault or per-endpoint item exists, the app offers an
+explicit **Repair Keychain once** action. Model sync and other ordinary actions
+will not open old ACL-bound items. macOS may request authorization only after
+the user starts the repair; RelayDock commits the new v3 vault only after every
+old credential was read and the new vault was verified non-interactively. An
+empty verified v3 tombstone prevents undeletable legacy ACL residue from being
+imported again after the last active key is removed. A damaged local signing
 identity is never silently rotated: the installer stops, preserves it in a
 recovery directory, and offers a separately confirmed repair path.
 
