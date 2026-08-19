@@ -426,18 +426,18 @@ enum CursorConfigurationError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .cursorIsRunning: return "请先完全退出 Cursor，再执行一键导入。"
-        case .noRouteSelected: return "请至少选择一个 OpenAI Compatible 或 Anthropic Endpoint。"
-        case .missingOpenAIKey: return "所选 OpenAI Compatible Endpoint 没有 API Key。"
-        case .missingAnthropicKey: return "所选 Anthropic Endpoint 没有 API Key。"
-        case .invalidOpenAIBaseURL: return "所选 OpenAI Compatible Base URL 无效。"
-        case let .unsupportedCursorVersion(version): return "Cursor \(version) 尚未通过配置导入兼容性验证。"
-        case .unsupportedDatabaseSchema: return "Cursor 配置数据库结构已变化，RelayDock 已停止写入。"
-        case .unsupportedStorage: return "Cursor 配置数据无法安全解析，RelayDock 未做任何修改。"
-        case .keyMigrationIncomplete: return "Cursor 尚未把导入的 Key 迁移到加密存储。"
-        case .invalidBackup: return "Cursor 回滚快照与当前数据库不匹配。"
-        case .noPendingBackup: return "没有待恢复的 Cursor 配置快照。"
-        case let .database(message): return "Cursor 配置数据库错误：\(message)"
+        case .cursorIsRunning: return L10n.t("Quit Cursor completely before running one-click import.", zh: "请先完全退出 Cursor，再执行一键导入。")
+        case .noRouteSelected: return L10n.t("Select at least one OpenAI Compatible or Anthropic endpoint.", zh: "请至少选择一个 OpenAI Compatible 或 Anthropic Endpoint。")
+        case .missingOpenAIKey: return L10n.t("The selected OpenAI Compatible endpoint has no API key.", zh: "所选 OpenAI Compatible Endpoint 没有 API Key。")
+        case .missingAnthropicKey: return L10n.t("The selected Anthropic endpoint has no API key.", zh: "所选 Anthropic Endpoint 没有 API Key。")
+        case .invalidOpenAIBaseURL: return L10n.t("The selected OpenAI Compatible Base URL is invalid.", zh: "所选 OpenAI Compatible Base URL 无效。")
+        case let .unsupportedCursorVersion(version): return L10n.t("Cursor {0} has not been verified for configuration import.", zh: "Cursor {0} 尚未通过配置导入兼容性验证。", version)
+        case .unsupportedDatabaseSchema: return L10n.t("The Cursor settings database schema has changed; RelayDock stopped writing.", zh: "Cursor 配置数据库结构已变化，RelayDock 已停止写入。")
+        case .unsupportedStorage: return L10n.t("Cursor settings data could not be parsed safely; RelayDock made no changes.", zh: "Cursor 配置数据无法安全解析，RelayDock 未做任何修改。")
+        case .keyMigrationIncomplete: return L10n.t("Cursor has not migrated the imported keys into encrypted storage yet.", zh: "Cursor 尚未把导入的 Key 迁移到加密存储。")
+        case .invalidBackup: return L10n.t("The Cursor rollback snapshot does not match the current database.", zh: "Cursor 回滚快照与当前数据库不匹配。")
+        case .noPendingBackup: return L10n.t("There is no Cursor configuration snapshot waiting to be restored.", zh: "没有待恢复的 Cursor 配置快照。")
+        case let .database(message): return L10n.t("Cursor settings database error: {0}", zh: "Cursor 配置数据库错误：{0}", message)
         }
     }
 }

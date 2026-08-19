@@ -248,17 +248,27 @@ enum OpenCodeError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .noEnabledModels:
-            return "请至少测试并启用一个可用模型。"
+            return L10n.t("Test and enable at least one available model.", zh: "请至少测试并启用一个可用模型。")
         case let .invalidEndpoint(name):
-            return "端点“\(name)”的地址无效。"
+            return L10n.t("The URL for endpoint “{0}” is invalid.", zh: "端点“{0}”的地址无效。", name)
         case .notInstalled:
-            return "未找到 OpenCode。支持 OpenCode.app、~/.opencode/bin、~/.local/bin 与 Homebrew。"
+            return L10n.t(
+                "OpenCode was not found. RelayDock looks for OpenCode.app, ~/.opencode/bin, ~/.local/bin, and Homebrew.",
+                zh: "未找到 OpenCode。支持 OpenCode.app、~/.opencode/bin、~/.local/bin 与 Homebrew。"
+            )
         case .desktopAlreadyRunning:
-            return "OpenCode 正在运行。请先完全退出 OpenCode，再点击“配置并启动”。"
+            return L10n.t(
+                "OpenCode is already running. Quit OpenCode completely, then choose Configure and open.",
+                zh: "OpenCode 正在运行。请先完全退出 OpenCode，再点击“配置并启动”。"
+            )
         case .launchFailed:
-            return "无法打开 OpenCode 启动器。"
+            return L10n.t("Could not open the OpenCode launcher.", zh: "无法打开 OpenCode 启动器。")
         case let .sensitiveBackupCleanupFailed(path):
-            return "新配置已写入，但包含旧 API Key 的备份未能删除：\(path)。RelayDock 已停止启动 OpenCode，请先安全删除该目录。"
+            return L10n.t(
+                "The new configuration was written, but a backup that still contains an old API key could not be deleted: {0}. RelayDock stopped launching OpenCode; delete that directory safely first.",
+                zh: "新配置已写入，但包含旧 API Key 的备份未能删除：{0}。RelayDock 已停止启动 OpenCode，请先安全删除该目录。",
+                path
+            )
         }
     }
 }

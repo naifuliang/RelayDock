@@ -104,7 +104,7 @@ final class MigrationTests: XCTestCase {
         XCTAssertEqual(loadCount, 0)
         XCTAssertFalse(includedLegacyKey)
         XCTAssertTrue(relaunched.apiKey.isEmpty)
-        XCTAssertTrue(relaunched.statusMessage.contains("一次性修复 Keychain"))
+        XCTAssertTrue(relaunched.statusMessage.contains("Repair Keychain once"))
     }
 
     @MainActor
@@ -152,7 +152,7 @@ final class MigrationTests: XCTestCase {
         model.testEndpoint()
 
         XCTAssertEqual(loadCount, 0)
-        XCTAssertTrue(model.statusMessage.contains("一次性修复 Keychain"))
+        XCTAssertTrue(model.statusMessage.contains("Repair Keychain once"))
         XCTAssertFalse(model.isBusy)
     }
 
@@ -178,7 +178,7 @@ final class MigrationTests: XCTestCase {
         model.migrateSavedCredentials()
 
         XCTAssertFalse(model.credentialMigrationAvailable)
-        XCTAssertTrue(model.statusMessage.contains("Keychain 修复完成"))
+        XCTAssertTrue(model.statusMessage.contains("Keychain repair complete"))
     }
 
     @MainActor
@@ -213,7 +213,7 @@ final class MigrationTests: XCTestCase {
 
         XCTAssertFalse(model.saveSelectedProfile())
         XCTAssertEqual(saveCount, 0)
-        XCTAssertTrue(model.statusMessage.contains("一次性修复 Keychain"))
+        XCTAssertTrue(model.statusMessage.contains("Repair Keychain once"))
     }
 
     func testMigrationDoesNotPersistOrDeleteLegacyKeyWhenNewKeySaveFails() {
@@ -377,7 +377,7 @@ final class MigrationTests: XCTestCase {
             directory: directory,
             revealGeneratedConfiguration: false
         )
-        XCTAssertEqual(model.statusMessage, "OpenCode 配置已生成")
+        XCTAssertEqual(model.statusMessage, "OpenCode configuration generated")
         XCTAssertEqual(loadedProfileIDs, [exportedID])
         let document = try JSONSerialization.jsonObject(
             with: Data(contentsOf: directory.appendingPathComponent("opencode.json"))

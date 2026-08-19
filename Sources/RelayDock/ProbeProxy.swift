@@ -84,7 +84,7 @@ final class ProbeProxy: @unchecked Sendable {
 
 private enum ProxyError: LocalizedError {
     case loopbackUnavailable
-    var errorDescription: String? { "无法绑定 IPv4 loopback 地址" }
+    var errorDescription: String? { L10n.t("Could not bind the IPv4 loopback address", zh: "无法绑定 IPv4 loopback 地址") }
 }
 
 private final class ProxySession: @unchecked Sendable {

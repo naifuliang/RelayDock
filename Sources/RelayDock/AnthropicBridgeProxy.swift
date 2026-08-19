@@ -1029,8 +1029,14 @@ enum AnthropicBridgeError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidRoute: return "Anthropic Bridge 需要有效的 HTTPS Endpoint 和 API Key。"
-        case .bindFailed: return "Anthropic Bridge 无法绑定本地回环端口。"
+        case .invalidRoute: return L10n.t(
+            "The Anthropic Bridge needs a valid HTTPS endpoint and API key.",
+            zh: "Anthropic Bridge 需要有效的 HTTPS Endpoint 和 API Key。"
+        )
+        case .bindFailed: return L10n.t(
+            "The Anthropic Bridge could not bind a local loopback port.",
+            zh: "Anthropic Bridge 无法绑定本地回环端口。"
+        )
         }
     }
 }

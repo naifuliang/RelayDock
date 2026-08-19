@@ -414,13 +414,24 @@ enum KeychainMigrationError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .migrationRequired: return "请先点击“一次性修复 Keychain”，再读取或修改已保存的 API Key。"
-        case .verificationFailed: return "迁移后的 API Key 无法从 Keychain 读取。"
+        case .migrationRequired: return L10n.t(
+            "Repair Keychain once first, then read or change a saved API key.",
+            zh: "请先点击“一次性修复 Keychain”，再读取或修改已保存的 API Key。"
+        )
+        case .verificationFailed: return L10n.t(
+            "The migrated API key could not be read from Keychain.",
+            zh: "迁移后的 API Key 无法从 Keychain 读取。"
+        )
         case let .verificationAndRollbackFailed(verification, rollback):
-            return "新凭据仓库验证失败（\(verification)），且回滚未完成（\(rollback)）。旧凭据仍未删除。"
-        case .profilePersistenceFailed: return "无法持久化多端点配置。"
-        case .invalidVault: return "RelayDock Keychain 凭据仓库已损坏，未进行覆盖。"
-        case .invalidCredential: return "旧 API Key 不是有效的 UTF-8 数据，未进行迁移。"
+            return L10n.t(
+                "The new credential vault failed verification ({0}), and rollback did not finish ({1}). Old credentials were not deleted.",
+                zh: "新凭据仓库验证失败（{0}），且回滚未完成（{1}）。旧凭据仍未删除。",
+                verification,
+                rollback
+            )
+        case .profilePersistenceFailed: return L10n.t("Could not persist the multi-endpoint configuration.", zh: "无法持久化多端点配置。")
+        case .invalidVault: return L10n.t("The RelayDock Keychain credential vault is damaged and was not overwritten.", zh: "RelayDock Keychain 凭据仓库已损坏，未进行覆盖。")
+        case .invalidCredential: return L10n.t("The old API key is not valid UTF-8 data and was not migrated.", zh: "旧 API Key 不是有效的 UTF-8 数据，未进行迁移。")
         }
     }
 }

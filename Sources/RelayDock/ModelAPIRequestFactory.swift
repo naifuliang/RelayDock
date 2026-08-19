@@ -148,9 +148,12 @@ enum ModelAPIError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .invalidEndpoint: return "端点地址无效"
+        case .invalidEndpoint: return L10n.t("Invalid endpoint URL", zh: "端点地址无效")
         case .azureDeploymentCatalogUnavailable:
-            return "Azure 旧版 deployment 模式无法自动列出 deployment ID，请手动添加"
+            return L10n.t(
+                "Azure’s retired deployment URL mode cannot list deployment IDs automatically; add them manually",
+                zh: "Azure 旧版 deployment 模式无法自动列出 deployment ID，请手动添加"
+            )
         }
     }
 }

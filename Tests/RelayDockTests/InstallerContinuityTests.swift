@@ -10,6 +10,7 @@ final class InstallerContinuityTests: XCTestCase {
         )
         XCTAssertEqual(plist["CFBundleShortVersionString"] as? String, "0.5.7")
         XCTAssertEqual(plist["CFBundleVersion"] as? String, "13")
+        XCTAssertEqual(plist["CFBundleDevelopmentRegion"] as? String, "en")
     }
 
     func testEveryUnsignedDistributionChannelUsesSharedTransactionalInstaller() throws {
