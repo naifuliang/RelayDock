@@ -154,7 +154,7 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 18) {
                 HStack {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Endpoints").font(.title3.bold())
+                        Text(L10n.t("Endpoints", zh: "端点")).font(.title3.bold())
                         Text(L10n.t("Each endpoint has its own protocol, URL, key, and model list.", zh: "每个 Endpoint 使用独立协议、地址、Key 和模型列表。"))
                             .font(.caption).foregroundStyle(.secondary)
                     }
@@ -254,7 +254,7 @@ struct ContentView: View {
                     .frame(width: 7, height: 7)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(profile.displayName).fontWeight(.medium).lineLimit(1)
-                    Text("\(profile.provider.title) · \(profile.models.count) models")
+                    Text(L10n.t("{0} · {1} models", zh: "{0} · {1} 模型", profile.provider.title, "\(profile.models.count)"))
                         .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer()
@@ -332,7 +332,7 @@ struct ContentView: View {
             Divider().padding(.vertical, 2)
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Models").font(.headline)
+                    Text(L10n.t("Models", zh: "模型")).font(.headline)
                     Text(L10n.t("Synced automatically after a connection test; you can also add models by hand.", zh: "测试连接后会自动同步；也可以手动添加。"))
                         .font(.caption).foregroundStyle(.secondary)
                 }
@@ -429,7 +429,7 @@ struct ContentView: View {
     private var launcherCard: some View {
         cleanCard {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Launchers").font(.title3.bold())
+                Text(L10n.t("Launchers", zh: "启动器")).font(.title3.bold())
                 HStack(spacing: 12) {
                     launcherTile(
                         title: "OpenCode",
@@ -641,13 +641,13 @@ struct ContentView: View {
             }
             .font(.caption).foregroundStyle(.secondary)
         case let .upToDate(date):
-            Label(L10n.t("Up to date · {0}", zh: "已是最新版本 · {0}", date.formatted(date: .omitted, time: .shortened)), systemImage: "checkmark.circle.fill")
+            Label(L10n.t("Up to date · {0}", zh: "已是最新版本 · {0}", model.language.formatTime(date)), systemImage: "checkmark.circle.fill")
                 .font(.caption).foregroundStyle(.green)
         case let .updateAvailable(version, checkedAt):
-            Label(L10n.t("Found v{0} · {1}", zh: "发现 v{0} · {1}", version, checkedAt.formatted(date: .omitted, time: .shortened)), systemImage: "arrow.down.circle.fill")
+            Label(L10n.t("Found v{0} · {1}", zh: "发现 v{0} · {1}", version, model.language.formatTime(checkedAt)), systemImage: "arrow.down.circle.fill")
                 .font(.caption).foregroundStyle(.blue)
         case let .failed(message, checkedAt):
-            Label(L10n.t("Check failed · {0} · {1}", zh: "检查失败 · {0} · {1}", checkedAt.formatted(date: .omitted, time: .shortened), message), systemImage: "exclamationmark.circle.fill")
+            Label(L10n.t("Check failed · {0} · {1}", zh: "检查失败 · {0} · {1}", model.language.formatTime(checkedAt), message), systemImage: "exclamationmark.circle.fill")
                 .font(.caption).foregroundStyle(.red).lineLimit(2)
         }
     }
@@ -816,11 +816,9 @@ struct MenuBarView: View {
     }
 
     private var languageMenu: some View {
-        Menu(L10n.t("Language", zh: "语言")) {
+        Picker(L10n.t("Language", zh: "语言"), selection: $model.language) {
             ForEach(AppLanguage.allCases) { language in
-                Button(language.nativeName) {
-                    model.language = language
-                }
+                Text(language.nativeName).tag(language)
             }
         }
     }

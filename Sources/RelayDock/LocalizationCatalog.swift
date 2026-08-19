@@ -4,7 +4,7 @@ enum L10nCatalog {
     }
 
     static func keys(for language: AppLanguage) -> Set<String> {
-        Set(table[language]?.keys ?? [])
+        table[language].map { Set($0.keys) } ?? []
     }
 
     private static let table: [AppLanguage: [String: String]] = [
@@ -18,6 +18,9 @@ enum L10nCatalog {
     ]
 
     private static let traditionalChinese: [String: String] = [
+        "Endpoints": "端點",
+        "Models": "模型",
+        "Launchers": "啟動器",
         "The GitHub update service returned an invalid response.": "GitHub 更新服務返回了無效響應。",
         "The latest release does not include a DMG installer.": "最新 Release 中沒有找到 DMG 安裝包。",
         "GitHub has not published a SHA-256 digest for the update package; download was stopped.": "GitHub 尚未提供更新包的 SHA-256 digest，已停止下載。",
@@ -281,6 +284,9 @@ enum L10nCatalog {
     ]
 
     private static let japanese: [String: String] = [
+        "Endpoints": "エンドポイント",
+        "Models": "モデル",
+        "Launchers": "ランチャー",
         "The GitHub update service returned an invalid response.": "GitHub の更新サービスが無効な応答を返しました。",
         "The latest release does not include a DMG installer.": "最新リリースに DMG インストーラが含まれていません。",
         "GitHub has not published a SHA-256 digest for the update package; download was stopped.": "GitHub が更新パッケージの SHA-256 digest を公開していないため、ダウンロードを停止しました。",
@@ -544,6 +550,9 @@ enum L10nCatalog {
     ]
 
     private static let korean: [String: String] = [
+        "Endpoints": "엔드포인트",
+        "Models": "모델",
+        "Launchers": "런처",
         "The GitHub update service returned an invalid response.": "GitHub 업데이트 서비스가 유효하지 않은 응답을 반환했습니다.",
         "The latest release does not include a DMG installer.": "최신 릴리스에 DMG 설치 프로그램이 포함되어 있지 않습니다.",
         "GitHub has not published a SHA-256 digest for the update package; download was stopped.": "GitHub가 업데이트 패키지의 SHA-256 digest를 게시하지 않아 다운로드가 중지되었습니다.",
@@ -807,6 +816,9 @@ enum L10nCatalog {
     ]
 
     private static let spanish: [String: String] = [
+        "Endpoints": "Endpoints",
+        "Models": "Modelos",
+        "Launchers": "Lanzadores",
         "The GitHub update service returned an invalid response.": "El servicio de actualizaciones de GitHub devolvió una respuesta no válida.",
         "The latest release does not include a DMG installer.": "La última versión no incluye un instalador DMG.",
         "GitHub has not published a SHA-256 digest for the update package; download was stopped.": "GitHub no ha publicado un digest SHA-256 del paquete de actualización; se detuvo la descarga.",
@@ -1070,6 +1082,9 @@ enum L10nCatalog {
     ]
 
     private static let french: [String: String] = [
+        "Endpoints": "Points de terminaison",
+        "Models": "Modèles",
+        "Launchers": "Lanceurs",
         "The GitHub update service returned an invalid response.": "Le service de mise à jour GitHub a renvoyé une réponse non valide.",
         "The latest release does not include a DMG installer.": "La dernière version n’inclut pas d’installateur DMG.",
         "GitHub has not published a SHA-256 digest for the update package; download was stopped.": "GitHub n’a pas publié de digest SHA-256 pour le paquet de mise à jour ; le téléchargement a été arrêté.",
@@ -1333,6 +1348,9 @@ enum L10nCatalog {
     ]
 
     private static let german: [String: String] = [
+        "Endpoints": "Endpunkte",
+        "Models": "Modelle",
+        "Launchers": "Starter",
         "The GitHub update service returned an invalid response.": "Der GitHub-Updatedienst hat eine ungültige Antwort zurückgegeben.",
         "The latest release does not include a DMG installer.": "Die neueste Version enthält kein DMG-Installationsprogramm.",
         "GitHub has not published a SHA-256 digest for the update package; download was stopped.": "GitHub hat keinen SHA-256-Digest für das Updatepaket veröffentlicht; der Download wurde gestoppt.",
@@ -1596,6 +1614,9 @@ enum L10nCatalog {
     ]
 
     private static let portugueseBrazil: [String: String] = [
+        "Endpoints": "Endpoints",
+        "Models": "Modelos",
+        "Launchers": "Inicializadores",
         "The GitHub update service returned an invalid response.": "O serviço de atualização do GitHub retornou uma resposta inválida.",
         "The latest release does not include a DMG installer.": "A versão mais recente não inclui um instalador DMG.",
         "GitHub has not published a SHA-256 digest for the update package; download was stopped.": "O GitHub não publicou um digest SHA-256 do pacote de atualização; o download foi interrompido.",

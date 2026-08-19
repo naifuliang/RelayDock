@@ -42,6 +42,10 @@ enum AppLanguage: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    func formatTime(_ date: Date) -> String {
+        date.formatted(Date.FormatStyle(date: .omitted, time: .shortened).locale(locale))
+    }
+
     static let `default`: AppLanguage = .english
 
     /// Languages whose copy is stored in `L10nCatalog` rather than the `zh:` call-site argument.
@@ -86,6 +90,10 @@ enum L10n {
     }
 
     static func t(_ english: String, zh: String, _ args: String...) -> String {
+        t(english, zh: zh, args)
+    }
+
+    static func t(_ english: String, zh: String, _ args: [String]) -> String {
         format(template(english: english, zh: zh), args)
     }
 

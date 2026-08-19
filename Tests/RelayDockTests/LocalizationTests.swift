@@ -86,12 +86,15 @@ final class LocalizationTests: XCTestCase {
             ["zh-Hant", "ja", "ko", "es", "fr", "de", "pt-BR"]
         )
         let expected = L10nCatalog.keys(for: .japanese)
-        XCTAssertEqual(expected.count, 260)
+        XCTAssertEqual(expected.count, 263)
         for language in languages {
             XCTAssertEqual(L10nCatalog.keys(for: language), expected, language.rawValue)
         }
         XCTAssertTrue(expected.contains("Ready"))
         XCTAssertTrue(expected.contains("Repair Keychain once"))
+        XCTAssertTrue(expected.contains("Endpoints"))
+        XCTAssertTrue(expected.contains("Models"))
+        XCTAssertTrue(expected.contains("Launchers"))
         XCTAssertEqual(L10nCatalog.string(.japanese, english: "Ready"), "準備完了")
         XCTAssertEqual(L10nCatalog.string(.traditionalChinese, english: "Ready"), "準備就緒")
     }
@@ -109,10 +112,31 @@ final class LocalizationTests: XCTestCase {
         model.language = .japanese
         XCTAssertEqual(defaults.string(forKey: AppModel.languageKey), "ja")
         XCTAssertEqual(L10n.language, .japanese)
+        XCTAssertEqual(model.statusMessage, "準備完了")
 
         let relaunched = AppModel(defaults: defaults, scheduleAutomaticUpdateCheck: false)
         XCTAssertEqual(relaunched.language, .japanese)
         XCTAssertEqual(relaunched.statusMessage, "準備完了")
+    }
+
+    @MainActor
+    func testChangingLanguageRerendersCurrentStatusOnTheSameInstance() {
+        let suiteName = "LocalizationTests.rerender.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let model = AppModel(defaults: defaults, scheduleAutomaticUpdateCheck: false)
+        XCTAssertEqual(model.language, .english)
+        XCTAssertEqual(model.statusMessage, "Ready")
+
+        model.language = .japanese
+        XCTAssertEqual(model.statusMessage, "準備完了")
+
+        model.language = .simplifiedChinese
+        XCTAssertEqual(model.statusMessage, "准备就绪")
+
+        model.language = .english
+        XCTAssertEqual(model.statusMessage, "Ready")
     }
 
     func testBundleDeclaresEnglishAsTheDevelopmentRegion() throws {
