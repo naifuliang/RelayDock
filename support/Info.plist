@@ -8,6 +8,13 @@
     <array>
         <string>en</string>
         <string>zh-Hans</string>
+        <string>zh-Hant</string>
+        <string>ja</string>
+        <string>ko</string>
+        <string>es</string>
+        <string>fr</string>
+        <string>de</string>
+        <string>pt-BR</string>
     </array>
     <key>CFBundleExecutable</key>
     <string>RelayDock</string>

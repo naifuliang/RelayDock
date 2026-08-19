@@ -15,21 +15,27 @@ final class LocalizationTests: XCTestCase {
     func testEnglishIsTheDefaultAndFirstLanguage() {
         XCTAssertEqual(AppLanguage.default, .english)
         XCTAssertEqual(AppLanguage.allCases.first, .english)
-        XCTAssertEqual(AppLanguage.allCases.map(\.rawValue), ["en", "zh-Hans"])
+        XCTAssertEqual(
+            AppLanguage.allCases.map(\.rawValue),
+            ["en", "zh-Hans", "zh-Hant", "ja", "ko", "es", "fr", "de", "pt-BR"]
+        )
         XCTAssertEqual(AppLanguage.resolved(stored: nil), .english)
         XCTAssertEqual(AppLanguage.resolved(stored: "unknown"), .english)
         XCTAssertEqual(AppLanguage.resolved(stored: "zh-Hans"), .simplifiedChinese)
+        XCTAssertEqual(AppLanguage.resolved(stored: "ja"), .japanese)
+        XCTAssertEqual(AppLanguage.resolved(stored: "pt-BR"), .portugueseBrazil)
     }
 
     func testEnglishCopyIsUsedByDefault() {
-        L10n.resetToDefault()
         XCTAssertEqual(L10n.t("Ready", zh: "准备就绪"), "Ready")
         XCTAssertEqual(
             L10n.t("Switched to {0}", zh: "已切换到 {0}", "Gateway 1"),
             "Switched to Gateway 1"
         )
-        XCTAssertEqual(UpdateError.missingDigest.errorDescription, "GitHub has not published a SHA-256 digest for the update package; download was stopped.")
-        XCTAssertEqual(KeychainMigrationError.migrationRequired.errorDescription, "Repair Keychain once first, then read or change a saved API key.")
+        XCTAssertEqual(
+            UpdateError.missingDigest.errorDescription,
+            "GitHub has not published a SHA-256 digest for the update package; download was stopped."
+        )
     }
 
     func testSimplifiedChineseCopyIsReturnedAfterSwitch() {
@@ -39,9 +45,55 @@ final class LocalizationTests: XCTestCase {
             L10n.t("Switched to {0}", zh: "已切换到 {0}", "Gateway 1"),
             "已切换到 Gateway 1"
         )
-        XCTAssertEqual(UpdateError.missingDigest.errorDescription, "GitHub 尚未提供更新包的 SHA-256 digest，已停止下载。")
-        XCTAssertEqual(KeychainMigrationError.migrationRequired.errorDescription, "请先点击“一次性修复 Keychain”，再读取或修改已保存的 API Key。")
         XCTAssertEqual(EndpointPreset.arkCodingPlan.title, "火山方舟")
+    }
+
+    func testCatalogLanguagesReturnLocalizedCopyAndFallBackToEnglish() {
+        L10n.language = .japanese
+        XCTAssertEqual(L10n.t("Ready", zh: "准备就绪"), "準備完了")
+        XCTAssertEqual(L10n.t("Language", zh: "语言"), "言語")
+        XCTAssertEqual(
+            L10n.t("Switched to {0}", zh: "已切换到 {0}", "Gateway 1"),
+            "Gateway 1 に切り替えました"
+        )
+
+        L10n.language = .traditionalChinese
+        XCTAssertEqual(L10n.t("Ready", zh: "准备就绪"), "準備就緒")
+        XCTAssertEqual(L10n.t("Language", zh: "语言"), "語言")
+
+        L10n.language = .korean
+        XCTAssertEqual(L10n.t("Ready", zh: "准备就绪"), "준비됨")
+        L10n.language = .spanish
+        XCTAssertEqual(L10n.t("Ready", zh: "准备就绪"), "Listo")
+        L10n.language = .french
+        XCTAssertEqual(L10n.t("Ready", zh: "准备就绪"), "Prêt")
+        L10n.language = .german
+        XCTAssertEqual(L10n.t("Ready", zh: "准备就绪"), "Bereit")
+        L10n.language = .portugueseBrazil
+        XCTAssertEqual(L10n.t("Ready", zh: "准备就绪"), "Pronto")
+
+        L10n.language = .japanese
+        XCTAssertEqual(
+            L10n.t("A string that is not in the catalog yet", zh: "目录里还没有"),
+            "A string that is not in the catalog yet"
+        )
+    }
+
+    func testEveryCatalogLanguageHasTheSameCompleteKeySet() {
+        let languages = AppLanguage.catalogLanguages
+        XCTAssertEqual(
+            languages.map(\.rawValue),
+            ["zh-Hant", "ja", "ko", "es", "fr", "de", "pt-BR"]
+        )
+        let expected = L10nCatalog.keys(for: .japanese)
+        XCTAssertEqual(expected.count, 260)
+        for language in languages {
+            XCTAssertEqual(L10nCatalog.keys(for: language), expected, language.rawValue)
+        }
+        XCTAssertTrue(expected.contains("Ready"))
+        XCTAssertTrue(expected.contains("Repair Keychain once"))
+        XCTAssertEqual(L10nCatalog.string(.japanese, english: "Ready"), "準備完了")
+        XCTAssertEqual(L10nCatalog.string(.traditionalChinese, english: "Ready"), "準備就緒")
     }
 
     @MainActor
@@ -54,13 +106,13 @@ final class LocalizationTests: XCTestCase {
         XCTAssertEqual(model.language, .english)
         XCTAssertEqual(model.statusMessage, "Ready")
 
-        model.language = .simplifiedChinese
-        XCTAssertEqual(defaults.string(forKey: AppModel.languageKey), "zh-Hans")
-        XCTAssertEqual(L10n.language, .simplifiedChinese)
+        model.language = .japanese
+        XCTAssertEqual(defaults.string(forKey: AppModel.languageKey), "ja")
+        XCTAssertEqual(L10n.language, .japanese)
 
         let relaunched = AppModel(defaults: defaults, scheduleAutomaticUpdateCheck: false)
-        XCTAssertEqual(relaunched.language, .simplifiedChinese)
-        XCTAssertEqual(relaunched.statusMessage, "准备就绪")
+        XCTAssertEqual(relaunched.language, .japanese)
+        XCTAssertEqual(relaunched.statusMessage, "準備完了")
     }
 
     func testBundleDeclaresEnglishAsTheDevelopmentRegion() throws {
@@ -74,6 +126,9 @@ final class LocalizationTests: XCTestCase {
             PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
         )
         XCTAssertEqual(plist["CFBundleDevelopmentRegion"] as? String, "en")
-        XCTAssertEqual(plist["CFBundleLocalizations"] as? [String], ["en", "zh-Hans"])
+        XCTAssertEqual(
+            plist["CFBundleLocalizations"] as? [String],
+            ["en", "zh-Hans", "zh-Hant", "ja", "ko", "es", "fr", "de", "pt-BR"]
+        )
     }
 }

@@ -116,7 +116,13 @@ struct ContentView: View {
             }
             .buttonStyle(.borderless)
 
-            languagePicker
+            VStack(alignment: .leading, spacing: 4) {
+                Text(L10n.t("Language", zh: "语言"))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 2)
+                languagePicker
+            }
 
             Text("v\(model.currentVersion)")
                 .font(.caption2).foregroundStyle(.tertiary)
