@@ -1,11 +1,5 @@
 import Foundation
 
-enum RelayDockLinks {
-    static let codexSub2APISetupGuide = URL(
-        string: "https://github.com/naifuliang/RelayDock/blob/main/docs/CODEX_SUB2API_SETUP.md"
-    )!
-}
-
 struct EndpointProfile: Codable, Equatable {
     var baseURL: String = ""
     var displayName: String = "Gateway 1"

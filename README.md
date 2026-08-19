@@ -22,12 +22,6 @@ The icon is hand-drawn from deterministic vector geometry. Edit
 `Assets/AppIcon.svg` or the matching dimensions in `scripts/render-icon.swift`;
 `scripts/build-icon.sh` renders the PNG and ICNS assets.
 
-Version 0.5.7 adds a Help & Setup Guide link to the app sidebar and menu bar.
-It opens the repository's [Codex Desktop Sub2API setup guide](docs/CODEX_SUB2API_SETUP.md),
-including a reusable Computer Use prompt, secret-handling rules, and the
-verification steps for a Composite OpenAI-compatible endpoint. The guide
-explicitly distinguishes Codex Desktop from Codex CLI.
-
 Version 0.5.6 makes Cursor's routed egress complete. Because RelayDock points
 Cursor's Chromium switch and `HTTP_PROXY` at the Bridge, every `http://` request
 reaches it in absolute form rather than as a CONNECT tunnel; those requests were
@@ -97,9 +91,6 @@ does not complete.
 
 - Multiple independent gateways with OpenAI-compatible, OpenAI Responses,
   Azure OpenAI, and Anthropic modes.
-- A direct Help & Setup Guide link for the Codex Desktop-assisted Sub2API
-  Composite workflow; the documented prompt never asks users to paste API keys
-  into a Codex conversation.
 - Quick-connect presets for the OpenAI API, Kimi Code, and Volcengine
   Ark Coding Plan. A preset fills the supported protocol and official API base;
   the user still supplies that service's API key.

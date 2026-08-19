@@ -95,9 +95,6 @@ struct ContentView: View {
                     sidebarLauncherLabel("打开 Cursor", systemImage: "cursorarrow")
                 }
                 .disabled(!model.cursorInstalled)
-                Link(destination: RelayDockLinks.codexSub2APISetupGuide) {
-                    sidebarLauncherLabel("帮助与配置说明", systemImage: "questionmark.circle")
-                }
             }
             .buttonStyle(.borderless)
 
@@ -723,8 +720,6 @@ struct MenuBarView: View {
             Task { await model.checkForUpdates() }
         }
         .disabled(model.isCheckingForUpdates)
-        Link("帮助与配置说明", destination: RelayDockLinks.codexSub2APISetupGuide)
-        Divider()
         Button("退出 RelayDock") {
             model.stopProbe()
             model.stopAnthropicBridge()
