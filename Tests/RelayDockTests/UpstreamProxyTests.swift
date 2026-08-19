@@ -158,4 +158,49 @@ final class UpstreamProxyTests: XCTestCase {
             }
         }
     }
+
+    func testSupportedProxyLaterInTheSystemListIsUsedInsteadOfFailing() throws {
+        // macOS lists SOCKS first when SOCKS and the HTTP proxy share a port.
+        let route = try UpstreamProxyResolver.route(fromSystemProxyDictionaries: [
+            [
+                kCFProxyTypeKey: kCFProxyTypeSOCKS,
+                kCFProxyHostNameKey: "127.0.0.1",
+                kCFProxyPortNumberKey: 7897
+            ],
+            [
+                kCFProxyTypeKey: kCFProxyTypeHTTPS,
+                kCFProxyHostNameKey: "127.0.0.1",
+                kCFProxyPortNumberKey: 7897
+            ]
+        ])
+        XCTAssertEqual(route, .httpProxy(HTTPUpstreamProxy(
+            host: "127.0.0.1",
+            port: 7897,
+            authorizationHeader: nil
+        )))
+    }
+
+    func testDirectFallbackAfterAnUnsupportedProxyStillFailsClosed() {
+        XCTAssertThrowsError(try UpstreamProxyResolver.route(fromSystemProxyDictionaries: [
+            [
+                kCFProxyTypeKey: kCFProxyTypeSOCKS,
+                kCFProxyHostNameKey: "127.0.0.1",
+                kCFProxyPortNumberKey: 1080
+            ],
+            [kCFProxyTypeKey: kCFProxyTypeNone]
+        ])) { error in
+            guard case UpstreamProxyError.unsupportedSOCKS = error else {
+                return XCTFail("Expected fail-closed SOCKS error, got \(error)")
+            }
+        }
+    }
+
+    func testExplicitDirectEntryIsHonouredWhenNothingWasSkipped() throws {
+        XCTAssertEqual(
+            try UpstreamProxyResolver.route(fromSystemProxyDictionaries: [
+                [kCFProxyTypeKey: kCFProxyTypeNone]
+            ]),
+            .direct
+        )
+    }
 }

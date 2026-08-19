@@ -22,6 +22,21 @@ The icon is hand-drawn from deterministic vector geometry. Edit
 `Assets/AppIcon.svg` or the matching dimensions in `scripts/render-icon.swift`;
 `scripts/build-icon.sh` renders the PNG and ICNS assets.
 
+Version 0.5.6 makes Cursor's routed egress complete. Because RelayDock points
+Cursor's Chromium switch and `HTTP_PROXY` at the Bridge, every `http://` request
+reaches it in absolute form rather than as a CONNECT tunnel; those requests were
+rejected with `400`, which silently broke plain-HTTP traffic for the whole
+application. The Bridge now forwards them, either straight to the origin with an
+origin-form request line or verbatim to a chained upstream proxy, and pins each
+forwarded connection so a reused proxy socket cannot deliver another host's
+request to the wrong origin. System-proxy selection now scans macOS's whole
+ordered proxy list instead of only its first entry, so a Mac with SOCKS listed
+ahead of its HTTP proxy uses the HTTP proxy instead of failing closed; an
+explicit direct entry is still refused when an unsupported proxy was skipped.
+Replacing an endpoint key now clears that endpoint's model verification even
+when the stored key was never loaded, and the OpenCode export unlocks
+credentials only for the endpoints it actually writes.
+
 Version 0.5.5 fixes OpenCode Desktop 1.18 file-secret substitution. Generated
 configs now keep JSON slashes unescaped and use config-relative
 `{file:./keys/...}` references, matching OpenCode's raw-text preprocessing
@@ -100,8 +115,10 @@ does not complete.
 - Provider-aware endpoint health checks and model catalog requests.
 - Catalog synchronization keeps text-generation candidates for coding tools;
   Azure's retired legacy deployment-list mode requires manual deployment IDs.
-- A diagnostic CONNECT Probe and a separate functional Sub2API Bridge, both
-  bound to `127.0.0.1` on random ports.
+- A functional Sub2API Bridge bound to `127.0.0.1` on a random port. Requests
+  for `api.anthropic.com` are terminated and rewritten; every other CONNECT stays
+  a byte tunnel and absolute-form `http://` requests are forwarded unchanged in
+  meaning.
 - Transactional Cursor 3.x configuration import with a mode-`0600` rollback
   snapshot and verification that Cursor migrated temporary keys into its own
   encrypted SecretStorage.
@@ -287,8 +304,8 @@ Cursor because the bridge is local to RelayDock.
   key before it can forward a request.
 - Remote gateway profiles require HTTPS; plain HTTP is accepted only for loopback gateways.
 - Non-target connections are tunneled byte-for-byte.
-- The Probe stores only destination metadata. The Bridge stores no request
-  bodies, headers, prompts, responses, or credentials.
+- The Bridge stores no request bodies, headers, prompts, responses, or
+  credentials. Its diagnostics record only destination host, port, and outcome.
 - Gateway keys are stored with `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`.
 - The unsigned installer creates a private, self-signed code-signing identity in
   `~/Library/Keychains/RelayDockLocalSigning.keychain-db` so future local signatures remain stable. It is

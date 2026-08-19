@@ -19,16 +19,22 @@ enum OpenCodeIntegration {
         }
     }
 
+    /// The endpoints a generated configuration will contain. Callers use this to
+    /// unlock exactly the credentials the export needs and nothing else.
+    static func exportableProfiles(_ profiles: [GatewayProfile]) -> [GatewayProfile] {
+        profiles.filter { profile in
+            profile.isEnabled && profile.models.contains(where: {
+                $0.isEnabled && $0.isVerified && !$0.modelID.trimmed.isEmpty
+            })
+        }
+    }
+
     static func generateConfiguration(
         profiles: [GatewayProfile],
         apiKeys: [UUID: String],
         directory: URL = configurationDirectory
     ) throws -> URL {
-        let enabledProfiles = profiles.filter { profile in
-            profile.isEnabled && profile.models.contains(where: {
-                $0.isEnabled && $0.isVerified && !$0.modelID.trimmed.isEmpty
-            })
-        }
+        let enabledProfiles = exportableProfiles(profiles)
         guard !enabledProfiles.isEmpty else { throw OpenCodeError.noEnabledModels }
 
         let fileManager = FileManager.default

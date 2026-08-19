@@ -8,8 +8,8 @@ final class InstallerContinuityTests: XCTestCase {
         let plist = try XCTUnwrap(
             PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
         )
-        XCTAssertEqual(plist["CFBundleShortVersionString"] as? String, "0.5.5")
-        XCTAssertEqual(plist["CFBundleVersion"] as? String, "11")
+        XCTAssertEqual(plist["CFBundleShortVersionString"] as? String, "0.5.6")
+        XCTAssertEqual(plist["CFBundleVersion"] as? String, "12")
     }
 
     func testEveryUnsignedDistributionChannelUsesSharedTransactionalInstaller() throws {

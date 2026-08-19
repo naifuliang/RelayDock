@@ -88,31 +88,50 @@ struct UpstreamProxyResolver: @unchecked Sendable {
         return try parseProxyURL(raw)
     }
 
+    /// macOS returns an ordered preference list, and a machine with both an HTTP
+    /// proxy and SOCKS enabled can put SOCKS first. Walk the whole list for a
+    /// supported entry instead of judging it by its first element, but still
+    /// refuse to fall back to a direct connection when the only remaining
+    /// choices are proxy modes RelayDock cannot chain.
     static func route(
         fromSystemProxyDictionaries dictionaries: [[AnyHashable: Any]]
     ) throws -> UpstreamNetworkRoute {
-        guard let first = dictionaries.first else { return .direct }
-        let type = first[kCFProxyTypeKey] as? String
-        if type == kCFProxyTypeNone as String? { return .direct }
-        if type == kCFProxyTypeHTTP as String? || type == kCFProxyTypeHTTPS as String? {
-            guard let host = first[kCFProxyHostNameKey] as? String,
-                  let portNumber = first[kCFProxyPortNumberKey] as? NSNumber,
-                  !host.isEmpty,
-                  (1...65_535).contains(portNumber.intValue) else {
-                throw UpstreamProxyError.invalidSystemProxy
+        guard !dictionaries.isEmpty else { return .direct }
+        var unsupported: UpstreamProxyError?
+        for entry in dictionaries {
+            let type = entry[kCFProxyTypeKey] as? String
+            if type == kCFProxyTypeNone as String? {
+                // An explicit direct entry only wins while no unsupported proxy
+                // has been skipped; otherwise honouring it would bypass egress
+                // the user deliberately configured.
+                if let unsupported { throw unsupported }
+                return .direct
             }
-            return .httpProxy(HTTPUpstreamProxy(
-                host: host,
-                port: portNumber.intValue,
-                authorizationHeader: nil
-            ))
+            if type == kCFProxyTypeHTTP as String? || type == kCFProxyTypeHTTPS as String? {
+                guard let host = entry[kCFProxyHostNameKey] as? String,
+                      let portNumber = entry[kCFProxyPortNumberKey] as? NSNumber,
+                      !host.isEmpty,
+                      (1...65_535).contains(portNumber.intValue) else {
+                    throw UpstreamProxyError.invalidSystemProxy
+                }
+                return .httpProxy(HTTPUpstreamProxy(
+                    host: host,
+                    port: portNumber.intValue,
+                    authorizationHeader: nil
+                ))
+            }
+            if type == kCFProxyTypeSOCKS as String? {
+                unsupported = unsupported ?? .unsupportedSOCKS
+                continue
+            }
+            if type == kCFProxyTypeAutoConfigurationURL as String?
+                || type == kCFProxyTypeAutoConfigurationJavaScript as String? {
+                unsupported = unsupported ?? .unsupportedPAC
+                continue
+            }
+            throw UpstreamProxyError.invalidSystemProxy
         }
-        if type == kCFProxyTypeSOCKS as String? { throw UpstreamProxyError.unsupportedSOCKS }
-        if type == kCFProxyTypeAutoConfigurationURL as String?
-            || type == kCFProxyTypeAutoConfigurationJavaScript as String? {
-            throw UpstreamProxyError.unsupportedPAC
-        }
-        throw UpstreamProxyError.invalidSystemProxy
+        throw unsupported ?? UpstreamProxyError.invalidSystemProxy
     }
 
     private static func parseProxyURL(_ rawValue: String) throws -> UpstreamNetworkRoute {

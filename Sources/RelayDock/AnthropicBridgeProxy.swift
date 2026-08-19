@@ -223,6 +223,81 @@ enum AnthropicBridgeRequestValidator {
     }
 }
 
+/// Cursor is launched with `--proxy-server` plus `HTTP_PROXY`/`http_proxy`, so
+/// the bridge receives every `http://` request in absolute form instead of a
+/// CONNECT tunnel. Rejecting those would silently break plain-HTTP egress for
+/// the whole application, so they are forwarded like an ordinary HTTP proxy.
+enum PlainHTTPForwardParser {
+    struct Request: Equatable {
+        let host: String
+        let port: UInt16
+        let headerLength: Int
+        let absoluteRequestLine: String
+        let originRequestLine: String
+        let forwardedHeaderLines: [String]
+
+        /// Header sent to an origin server RelayDock connects to itself.
+        var originFormHeader: Data {
+            Self.header(requestLine: originRequestLine, lines: forwardedHeaderLines, extra: ["Connection: close"])
+        }
+
+        /// Header sent to a chained upstream proxy that expects absolute form.
+        func proxyFormHeader(authorization: String) -> Data {
+            Self.header(
+                requestLine: absoluteRequestLine,
+                lines: forwardedHeaderLines,
+                extra: ["Proxy-Authorization: \(authorization)", "Proxy-Connection: close", "Connection: close"]
+            )
+        }
+
+        private static func header(requestLine: String, lines: [String], extra: [String]) -> Data {
+            Data((([requestLine] + lines + extra).joined(separator: "\r\n") + "\r\n\r\n").utf8)
+        }
+    }
+
+    static func parse(_ data: Data) -> Request? {
+        guard let marker = data.range(of: Data("\r\n\r\n".utf8)),
+              let header = String(data: data[..<marker.upperBound], encoding: .utf8) else { return nil }
+        let lines = header.components(separatedBy: "\r\n")
+        guard let requestLine = lines.first else { return nil }
+        let fields = requestLine.split(separator: " ")
+        guard fields.count == 3,
+              fields[0].uppercased() != "CONNECT",
+              fields[2].uppercased().hasPrefix("HTTP/") else { return nil }
+        // Only absolute-form `http://` targets are proxy requests. An origin-form
+        // request line is a client talking to the listener directly, not through it.
+        guard fields[1].lowercased().hasPrefix("http://"),
+              let components = URLComponents(string: String(fields[1])),
+              let host = components.host?.lowercased(),
+              !host.isEmpty else { return nil }
+        let resolvedPort = components.port ?? 80
+        guard let port = UInt16(exactly: resolvedPort), port > 0 else { return nil }
+
+        var originForm = components.percentEncodedPath
+        if originForm.isEmpty { originForm = "/" }
+        if let query = components.percentEncodedQuery { originForm += "?" + query }
+
+        // Hop-by-hop fields and the client's proxy credentials never reach the
+        // next hop. `Connection: close` is appended by the header builders so a
+        // reused proxy connection cannot deliver a second host's request to the
+        // origin this one was pinned to.
+        let dropped = ["connection:", "proxy-connection:", "proxy-authorization:", "keep-alive:"]
+        let forwarded = lines.dropFirst().filter { line in
+            guard !line.isEmpty else { return false }
+            let lowered = line.lowercased()
+            return !dropped.contains { lowered.hasPrefix($0) }
+        }
+        return Request(
+            host: host,
+            port: port,
+            headerLength: marker.upperBound,
+            absoluteRequestLine: requestLine,
+            originRequestLine: "\(fields[0]) \(originForm) \(fields[2])",
+            forwardedHeaderLines: forwarded
+        )
+    }
+}
+
 private final class BridgeConnectHandler: ChannelInboundHandler, RemovableChannelHandler {
     typealias InboundIn = ByteBuffer
     typealias OutboundOut = ByteBuffer
@@ -271,7 +346,19 @@ private final class BridgeConnectHandler: ChannelInboundHandler, RemovableChanne
         let requestData = Data(pending.readableBytesView)
         guard requestData.range(of: Data("\r\n\r\n".utf8)) != nil else { return }
         guard let request = ConnectRequestParser.parse(requestData) else {
-            reject(context: context, status: "400 Bad Request", detail: "Only CONNECT is accepted")
+            guard let plain = PlainHTTPForwardParser.parse(requestData) else {
+                reject(
+                    context: context,
+                    status: "400 Bad Request",
+                    detail: "Only CONNECT and absolute-form HTTP proxy requests are accepted"
+                )
+                return
+            }
+            negotiating = true
+            var body = pending
+            body.moveReaderIndex(forwardBy: plain.headerLength)
+            self.pending = nil
+            establishPlainForward(context: context, request: plain, body: body)
             return
         }
         negotiating = true
@@ -329,6 +416,95 @@ private final class BridgeConnectHandler: ChannelInboundHandler, RemovableChanne
                 context.close(promise: nil)
             }
         }
+    }
+
+    /// Forwards an absolute-form `http://` request. RelayDock either chains it to
+    /// the configured upstream proxy verbatim or connects to the origin itself
+    /// and rewrites the request line to origin form.
+    private func establishPlainForward(
+        context: ChannelHandlerContext,
+        request: PlainHTTPForwardParser.Request,
+        body: ByteBuffer
+    ) {
+        let route: UpstreamNetworkRoute
+        do {
+            let authority = request.host.contains(":")
+                ? "[\(request.host)]:\(request.port)"
+                : "\(request.host):\(request.port)"
+            guard let targetURL = URL(string: "http://\(authority)") else {
+                throw UpstreamProxyError.malformedConnectResponse
+            }
+            route = try upstreamProxyResolver.route(to: targetURL)
+        } catch {
+            onEvent(ProxyEvent(
+                timestamp: Date(), host: request.host, port: request.port,
+                kind: .failed, detail: error.localizedDescription
+            ))
+            context.close(promise: nil)
+            return
+        }
+
+        let connectHost: String
+        let connectPort: Int
+        var header: Data
+        switch route {
+        case .direct:
+            connectHost = request.host
+            connectPort = Int(request.port)
+            header = request.originFormHeader
+        case let .httpProxy(proxy):
+            connectHost = proxy.host
+            connectPort = proxy.port
+            // A proxy that needs credentials only sees them on a header RelayDock
+            // rebuilds, so that connection carries exactly one request.
+            header = proxy.authorizationHeader.map(request.proxyFormHeader(authorization:))
+                ?? Data(pendingProxyBytes(request))
+        }
+
+        ClientBootstrap(group: context.eventLoop)
+            .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
+            .connectTimeout(.seconds(15))
+            .connect(host: connectHost, port: connectPort)
+            .flatMap { outbound in
+                outbound.pipeline.addHandler(RawRelayHandler(peer: context.channel)).map { outbound }
+            }.flatMap { outbound in
+                context.pipeline.addHandler(
+                    RawRelayHandler(peer: outbound),
+                    position: .after(self)
+                ).map { outbound }
+            }.flatMap { outbound in
+                context.pipeline.removeHandler(self).map { outbound }
+            }.whenComplete { result in
+                switch result {
+                case let .success(outbound):
+                    self.onEvent(ProxyEvent(
+                        timestamp: Date(), host: request.host, port: request.port,
+                        kind: .tunneled, detail: "Plain HTTP request forwarded"
+                    ))
+                    var upstreamBytes = outbound.allocator.buffer(capacity: header.count)
+                    upstreamBytes.writeBytes(header)
+                    var body = body
+                    upstreamBytes.writeBuffer(&body)
+                    if var negotiatingBytes = self.negotiatingBytes {
+                        upstreamBytes.writeBuffer(&negotiatingBytes)
+                        self.negotiatingBytes = nil
+                    }
+                    outbound.writeAndFlush(upstreamBytes, promise: nil)
+                case let .failure(error):
+                    self.onEvent(ProxyEvent(
+                        timestamp: Date(), host: request.host, port: request.port,
+                        kind: .failed, detail: error.localizedDescription
+                    ))
+                    context.close(promise: nil)
+                }
+            }
+    }
+
+    /// An unauthenticated upstream proxy already understands absolute form, so
+    /// the client's own bytes are relayed without rewriting anything.
+    private func pendingProxyBytes(_ request: PlainHTTPForwardParser.Request) -> [UInt8] {
+        Array((request.absoluteRequestLine + "\r\n"
+            + (request.forwardedHeaderLines + [""]).joined(separator: "\r\n") + "\r\n").utf8)
     }
 
     private func establishTunnel(
