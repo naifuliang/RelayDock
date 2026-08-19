@@ -372,6 +372,192 @@ final class AnthropicBridgeTests: XCTestCase {
         XCTAssertEqual(upstreamProxy.targets, ["127.0.0.1:\(upstream.port)"])
         XCTAssertEqual(capture.head?.uri, "/chained")
     }
+
+    func testAbsoluteFormHTTPRequestIsForwardedToTheOriginServer() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RelayDockPlainHTTP-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let material = try BridgeCertificateManager.ensureMaterial(directory: root)
+        let capture = RequestCapture()
+        let origin = try TestPlainHTTPOrigin(capture: capture)
+        defer { origin.stop() }
+        let route = try AnthropicBridgeRoute(
+            baseURL: XCTUnwrap(URL(string: "https://gateway.example/anthropic")),
+            apiKey: "unused-for-plain-http"
+        )
+        let proxy = AnthropicBridgeProxy(
+            route: route,
+            material: material,
+            upstreamProxyResolver: .direct,
+            onEvent: { capture.storeEvent($0.detail) },
+            onState: { _, _ in }
+        )
+        let proxyPort = try proxy.start()
+        defer { proxy.stop() }
+
+        let response = try runCurl([
+            "-sS", "-i", "--max-time", "20",
+            "-x", "http://127.0.0.1:\(proxyPort)",
+            "http://127.0.0.1:\(origin.port)/plain?probe=1"
+        ])
+        XCTAssertTrue(response.contains("HTTP/1.1 200 OK"), "\(response)\nEvents: \(capture.events)")
+        XCTAssertTrue(response.contains("relaydock-plain-origin"), response)
+        let head = try XCTUnwrap(capture.head)
+        XCTAssertEqual(head.uri, "/plain?probe=1")
+        XCTAssertEqual(head.headers.first(name: "host"), "127.0.0.1:\(origin.port)")
+        XCTAssertNil(head.headers.first(name: "proxy-connection"))
+        XCTAssertTrue(capture.events.contains("Plain HTTP request forwarded"), "\(capture.events)")
+    }
+
+    func testAbsoluteFormHTTPRequestChainsThroughConfiguredProxy() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RelayDockPlainChain-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let material = try BridgeCertificateManager.ensureMaterial(directory: root)
+        let capture = RequestCapture()
+        let upstreamProxy = try TestAbsoluteFormProxy()
+        defer { upstreamProxy.stop() }
+        let route = try AnthropicBridgeRoute(
+            baseURL: XCTUnwrap(URL(string: "https://gateway.example/anthropic")),
+            apiKey: "unused-for-plain-http"
+        )
+        let proxy = AnthropicBridgeProxy(
+            route: route,
+            material: material,
+            upstreamProxyResolver: UpstreamProxyResolver(
+                environment: ["HTTP_PROXY": "http://127.0.0.1:\(upstreamProxy.port)"],
+                systemSettings: [:]
+            ),
+            onEvent: { capture.storeEvent($0.detail) },
+            onState: { _, _ in }
+        )
+        let proxyPort = try proxy.start()
+        defer { proxy.stop() }
+
+        let response = try runCurl([
+            "-sS", "-i", "--max-time", "20",
+            "-x", "http://127.0.0.1:\(proxyPort)",
+            "http://example.invalid/chained-plain"
+        ])
+        XCTAssertTrue(response.contains("HTTP/1.1 200 OK"), "\(response)\nEvents: \(capture.events)")
+        XCTAssertEqual(
+            upstreamProxy.requestLines,
+            ["GET http://example.invalid/chained-plain HTTP/1.1"]
+        )
+    }
+
+    func testPlainHTTPParserRejectsOriginFormAndNonProxyTargets() {
+        XCTAssertNil(PlainHTTPForwardParser.parse(Data(
+            "GET /origin-form HTTP/1.1\r\nHost: example.com\r\n\r\n".utf8
+        )))
+        XCTAssertNil(PlainHTTPForwardParser.parse(Data(
+            "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n".utf8
+        )))
+        XCTAssertNil(PlainHTTPForwardParser.parse(Data(
+            "GET https://example.com/secure HTTP/1.1\r\nHost: example.com\r\n\r\n".utf8
+        )))
+        XCTAssertNil(PlainHTTPForwardParser.parse(Data("GET http://example.com/ HTTP/1.1\r\n".utf8)))
+    }
+
+    func testPlainHTTPParserStripsHopByHopFieldsAndPinsTheConnection() throws {
+        let parsed = try XCTUnwrap(PlainHTTPForwardParser.parse(Data("""
+        POST http://origin.example:8080/submit?a=1 HTTP/1.1\r
+        Host: origin.example:8080\r
+        Proxy-Connection: keep-alive\r
+        Connection: keep-alive\r
+        Proxy-Authorization: Basic c2VjcmV0\r
+        Content-Length: 2\r
+        \r
+        {}
+        """.utf8)))
+        XCTAssertEqual(parsed.host, "origin.example")
+        XCTAssertEqual(parsed.port, 8080)
+        XCTAssertEqual(parsed.originRequestLine, "POST /submit?a=1 HTTP/1.1")
+        XCTAssertEqual(parsed.forwardedHeaderLines, ["Host: origin.example:8080", "Content-Length: 2"])
+        let origin = String(decoding: parsed.originFormHeader, as: UTF8.self)
+        XCTAssertEqual(origin, """
+        POST /submit?a=1 HTTP/1.1\r
+        Host: origin.example:8080\r
+        Content-Length: 2\r
+        Connection: close\r
+        \r
+
+        """)
+        let chained = String(decoding: parsed.proxyFormHeader(authorization: "Basic dXA6"), as: UTF8.self)
+        XCTAssertTrue(chained.hasPrefix("POST http://origin.example:8080/submit?a=1 HTTP/1.1\r\n"), chained)
+        XCTAssertTrue(chained.contains("Proxy-Authorization: Basic dXA6\r\n"), chained)
+        XCTAssertFalse(chained.contains("Basic c2VjcmV0"), chained)
+    }
+
+    /// Drives the real gateway through the bridge exactly as Cursor would.
+    /// Requires RELAYDOCK_LIVE_BRIDGE_TEST=1 plus the gateway base URL and key,
+    /// because it spends a small amount of the configured plan's quota.
+    func testLiveGatewayThroughBridgeWhenRequested() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["RELAYDOCK_LIVE_BRIDGE_TEST"] == "1",
+              let baseURLValue = environment["RELAYDOCK_LIVE_ANTHROPIC_BASE_URL"],
+              let apiKey = environment["RELAYDOCK_LIVE_ANTHROPIC_KEY"],
+              let modelID = environment["RELAYDOCK_LIVE_ANTHROPIC_MODEL"] else {
+            throw XCTSkip(
+                "Set RELAYDOCK_LIVE_BRIDGE_TEST=1 with RELAYDOCK_LIVE_ANTHROPIC_BASE_URL, "
+                    + "RELAYDOCK_LIVE_ANTHROPIC_KEY and RELAYDOCK_LIVE_ANTHROPIC_MODEL."
+            )
+        }
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RelayDockLiveBridge-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let material = try BridgeCertificateManager.ensureMaterial(directory: root)
+        let capture = RequestCapture()
+        let route = try AnthropicBridgeRoute(
+            baseURL: XCTUnwrap(URL(string: baseURLValue)),
+            apiKey: apiKey
+        )
+        let proxy = AnthropicBridgeProxy(
+            route: route,
+            material: material,
+            upstreamProxyResolver: UpstreamProxyResolver(),
+            onEvent: { capture.storeEvent($0.detail) },
+            onState: { _, _ in }
+        )
+        let proxyPort = try proxy.start()
+        defer { proxy.stop() }
+
+        let body = """
+        {"model":"\(modelID)","max_tokens":16,"messages":[{"role":"user","content":"Reply with OK"}]}
+        """
+        let response = try runCurl([
+            "-sS", "-i", "--max-time", "60",
+            "-x", "http://127.0.0.1:\(proxyPort)",
+            "--proxy-insecure",
+            "--cacert", material.certificateURL.path,
+            "-H", "x-api-key: \(apiKey)",
+            "-H", "anthropic-version: 2023-06-01",
+            "-H", "content-type: application/json",
+            "--data-binary", body,
+            "https://api.anthropic.com/v1/messages"
+        ])
+        XCTAssertTrue(response.contains("HTTP/1.1 200 OK"), "\(response)\nEvents: \(capture.events)")
+        XCTAssertTrue(
+            capture.events.contains("Anthropic TLS bridge established"),
+            "\(capture.events)"
+        )
+    }
+
+    private func runCurl(_ arguments: [String]) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
+        process.arguments = arguments
+        // A developer machine usually exports NO_PROXY for loopback, which would
+        // let curl skip the bridge and silently pass this test against the origin.
+        process.environment = [:]
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = output
+        try process.run()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return String(decoding: data, as: UTF8.self)
+    }
 }
 
 private final class RequestCapture: @unchecked Sendable {
@@ -588,5 +774,128 @@ private final class TestRawRelayHandler: ChannelInboundHandler {
     func errorCaught(context: ChannelHandlerContext, error: Error) {
         peer?.close(promise: nil)
         context.close(promise: nil)
+    }
+}
+
+private final class TestPlainHTTPOrigin {
+    private let group: MultiThreadedEventLoopGroup
+    private let channel: Channel
+    let port: Int
+
+    init(capture: RequestCapture) throws {
+        let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        self.group = group
+        do {
+            channel = try ServerBootstrap(group: group)
+                .childChannelInitializer { channel in
+                    channel.pipeline.configureHTTPServerPipeline().flatMap {
+                        channel.pipeline.addHandler(TestPlainHTTPOriginHandler(capture: capture))
+                    }
+                }
+                .bind(host: "127.0.0.1", port: 0)
+                .wait()
+            port = try XCTUnwrap(channel.localAddress?.port)
+        } catch {
+            try? group.syncShutdownGracefully()
+            throw error
+        }
+    }
+
+    func stop() {
+        try? channel.close().wait()
+        try? group.syncShutdownGracefully()
+    }
+}
+
+private final class TestPlainHTTPOriginHandler: ChannelInboundHandler {
+    typealias InboundIn = HTTPServerRequestPart
+    typealias OutboundOut = HTTPServerResponsePart
+    private let capture: RequestCapture
+
+    init(capture: RequestCapture) { self.capture = capture }
+
+    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+        switch unwrapInboundIn(data) {
+        case let .head(head):
+            capture.store(head)
+        case .body:
+            break
+        case .end:
+            let body = "relaydock-plain-origin"
+            var headers = HTTPHeaders()
+            headers.add(name: "content-type", value: "text/plain")
+            headers.add(name: "content-length", value: String(body.utf8.count))
+            headers.add(name: "connection", value: "close")
+            context.write(wrapOutboundOut(.head(HTTPResponseHead(
+                version: .http1_1, status: .ok, headers: headers
+            ))), promise: nil)
+            context.write(wrapOutboundOut(.body(.byteBuffer(
+                context.channel.allocator.buffer(string: body)
+            ))), promise: nil)
+            context.writeAndFlush(wrapOutboundOut(.end(nil))).whenComplete { _ in
+                context.close(promise: nil)
+            }
+        }
+    }
+}
+
+/// Stands in for a local corporate proxy that expects absolute-form requests.
+private final class TestAbsoluteFormProxy: @unchecked Sendable {
+    private let group: MultiThreadedEventLoopGroup
+    private let channel: Channel
+    private let capture: TestProxyTargetCapture
+    let port: Int
+
+    var requestLines: [String] { capture.targets }
+
+    init() throws {
+        let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        let capture = TestProxyTargetCapture()
+        self.group = group
+        self.capture = capture
+        do {
+            channel = try ServerBootstrap(group: group)
+                .childChannelInitializer { channel in
+                    channel.pipeline.addHandler(TestAbsoluteFormProxyHandler(
+                        onRequestLine: { capture.store($0) }
+                    ))
+                }
+                .bind(host: "127.0.0.1", port: 0)
+                .wait()
+            port = try XCTUnwrap(channel.localAddress?.port)
+        } catch {
+            try? group.syncShutdownGracefully()
+            throw error
+        }
+    }
+
+    func stop() {
+        try? channel.close().wait()
+        try? group.syncShutdownGracefully()
+    }
+}
+
+private final class TestAbsoluteFormProxyHandler: ChannelInboundHandler {
+    typealias InboundIn = ByteBuffer
+    typealias OutboundOut = ByteBuffer
+    private var pending = Data()
+    private var answered = false
+    private let onRequestLine: @Sendable (String) -> Void
+
+    init(onRequestLine: @escaping @Sendable (String) -> Void) { self.onRequestLine = onRequestLine }
+
+    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+        guard !answered else { return }
+        pending.append(contentsOf: unwrapInboundIn(data).readableBytesView)
+        guard let marker = pending.range(of: Data("\r\n\r\n".utf8)),
+              let header = String(data: pending[..<marker.upperBound], encoding: .utf8),
+              let requestLine = header.components(separatedBy: "\r\n").first else { return }
+        answered = true
+        onRequestLine(requestLine)
+        let body = "relaydock-chained-proxy"
+        let response = "HTTP/1.1 200 OK\r\ncontent-length: \(body.utf8.count)\r\nconnection: close\r\n\r\n" + body
+        context.writeAndFlush(wrapOutboundOut(
+            context.channel.allocator.buffer(string: response)
+        )).whenComplete { _ in context.close(promise: nil) }
     }
 }

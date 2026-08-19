@@ -337,9 +337,15 @@ final class AppModel: ObservableObject {
             draftProfile.baseURL = url.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             guard let index = profiles.firstIndex(where: { $0.id == selectedProfileID }) else { return false }
             let previous = profiles[index]
+            // A key typed into an endpoint whose stored value was never loaded
+            // still replaces that credential, so previous verification results
+            // no longer describe the route that will actually be used.
+            let credentialChanged = credentialLoaded
+                ? savedAPIKey != apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+                : !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             let endpointChanged = previous.provider != draftProfile.provider
                 || previous.baseURL != draftProfile.baseURL
-                || (credentialLoaded && savedAPIKey != apiKey.trimmingCharacters(in: .whitespacesAndNewlines))
+                || credentialChanged
             if endpointChanged {
                 for modelIndex in draftProfile.models.indices {
                     draftProfile.models[modelIndex].isVerified = false
@@ -581,7 +587,11 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func configureOpenCode(launch: Bool) {
+    func configureOpenCode(
+        launch: Bool,
+        directory: URL = OpenCodeIntegration.configurationDirectory,
+        revealGeneratedConfiguration: Bool = true
+    ) {
         if launch {
             do {
                 try OpenCodeIntegration.validateLaunchAvailability()
@@ -592,18 +602,24 @@ final class AppModel: ObservableObject {
         }
         guard saveSelectedProfile() else { return }
         do {
-            let keys = try Dictionary(uniqueKeysWithValues: profiles.map {
+            // Only endpoints that are actually exported are unlocked. A disabled
+            // or unverified endpoint must not make this action read a credential.
+            let exportedProfiles = OpenCodeIntegration.exportableProfiles(profiles)
+            let keys = try Dictionary(uniqueKeysWithValues: exportedProfiles.map {
                 ($0.id, try credentialForUserAction(profileID: $0.id))
             })
-            let configURL = try OpenCodeIntegration.generateConfiguration(profiles: profiles, apiKeys: keys)
+            let configURL = try OpenCodeIntegration.generateConfiguration(
+                profiles: profiles,
+                apiKeys: keys,
+                directory: directory
+            )
             if launch {
-                try OpenCodeIntegration.launch(configURL: configURL)
-                let importedCount = profiles.filter {
-                    $0.isEnabled && $0.models.contains { $0.isEnabled && $0.isVerified }
-                }.count
-                statusMessage = "OpenCode 已使用 \(importedCount) 个已验证 RelayDock 端点启动"
+                try OpenCodeIntegration.launch(configURL: configURL, directory: directory)
+                statusMessage = "OpenCode 已使用 \(exportedProfiles.count) 个已验证 RelayDock 端点启动"
             } else {
-                NSWorkspace.shared.activateFileViewerSelecting([configURL])
+                if revealGeneratedConfiguration {
+                    NSWorkspace.shared.activateFileViewerSelecting([configURL])
+                }
                 statusMessage = "OpenCode 配置已生成"
             }
         } catch {

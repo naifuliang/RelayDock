@@ -312,6 +312,80 @@ final class MigrationTests: XCTestCase {
     }
 }
 
+    @MainActor
+    func testReplacingAnUnloadedKeyInvalidatesPreviousModelVerification() {
+        let suiteName = "MigrationTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let model = AppModel(
+            defaults: defaults,
+            scheduleAutomaticUpdateCheck: false,
+            credentialStore: makeCredentialStore(presence: .present)
+        )
+        model.draftProfile.baseURL = "https://gateway.example/v1"
+        model.draftProfile.models = [
+            GatewayModel(modelID: "verified-model", displayName: "Verified", isVerified: true)
+        ]
+        XCTAssertTrue(model.saveSelectedProfile())
+        XCTAssertTrue(model.draftProfile.models[0].isVerified)
+
+        // The stored key was never loaded, so the field starts empty and a typed
+        // value silently replaces a different credential.
+        XCTAssertFalse(model.credentialLoaded)
+        model.apiKey = "rotated-key"
+        XCTAssertTrue(model.saveSelectedProfile())
+        XCTAssertFalse(model.draftProfile.models[0].isVerified)
+        XCTAssertFalse(model.profiles[0].models[0].isVerified)
+    }
+
+    @MainActor
+    func testOpenCodeExportOnlyUnlocksCredentialsItActuallyWrites() throws {
+        let suiteName = "MigrationTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var loadedProfileIDs: [UUID] = []
+        let model = AppModel(
+            defaults: defaults,
+            scheduleAutomaticUpdateCheck: false,
+            credentialStore: makeCredentialStore(
+                presence: .present,
+                load: { id, _ in loadedProfileIDs.append(id); return "secret-\(id.uuidString.prefix(4))" }
+            )
+        )
+        model.draftProfile.baseURL = "https://exported.example/v1"
+        model.draftProfile.models = [
+            GatewayModel(modelID: "exported-model", displayName: "Exported", isVerified: true)
+        ]
+        XCTAssertTrue(model.saveSelectedProfile())
+        let exportedID = model.selectedProfileID
+
+        // A second endpoint with no verified model is never written to OpenCode.
+        model.addProfile()
+        model.draftProfile.baseURL = "https://unverified.example/v1"
+        model.draftProfile.models = [GatewayModel(modelID: "unverified-model")]
+        XCTAssertTrue(model.saveSelectedProfile())
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RelayDockOpenCodeScope-\(UUID().uuidString)/OpenCode", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory.deletingLastPathComponent()) }
+        let exported = OpenCodeIntegration.exportableProfiles(model.profiles)
+        XCTAssertEqual(exported.map(\.id), [exportedID])
+
+        loadedProfileIDs.removeAll()
+        model.configureOpenCode(
+            launch: false,
+            directory: directory,
+            revealGeneratedConfiguration: false
+        )
+        XCTAssertEqual(model.statusMessage, "OpenCode 配置已生成")
+        XCTAssertEqual(loadedProfileIDs, [exportedID])
+        let document = try JSONSerialization.jsonObject(
+            with: Data(contentsOf: directory.appendingPathComponent("opencode.json"))
+        ) as? [String: Any]
+        let providers = try XCTUnwrap(document?["provider"] as? [String: Any])
+        XCTAssertEqual(providers.count, 1)
+    }
+
 private func makeCredentialStore(
     presence: KeychainStore.Presence = .absent,
     load: @escaping (UUID, Bool) throws -> String = { _, _ in "" }

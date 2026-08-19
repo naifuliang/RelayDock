@@ -260,4 +260,44 @@ final class OpenCodeIntegrationTests: XCTestCase {
             return String(rawConfig[pathRange])
         }
     }
+    /// Writes a configuration from real endpoint data so it can be handed to an
+    /// installed OpenCode build. Gated because it materializes real API keys.
+    func testGeneratesLiveConfigurationWhenRequested() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["RELAYDOCK_LIVE_OPENCODE_TEST"] == "1",
+              let outputPath = environment["RELAYDOCK_LIVE_OPENCODE_DIR"],
+              let baseURL = environment["RELAYDOCK_LIVE_BASE_URL"],
+              let anthropicKey = environment["RELAYDOCK_LIVE_ANTHROPIC_KEY"],
+              let anthropicModel = environment["RELAYDOCK_LIVE_ANTHROPIC_MODEL"],
+              let compatibleKey = environment["RELAYDOCK_LIVE_COMPATIBLE_KEY"],
+              let compatibleModel = environment["RELAYDOCK_LIVE_COMPATIBLE_MODEL"] else {
+            throw XCTSkip("Set RELAYDOCK_LIVE_OPENCODE_TEST=1 plus the live endpoint variables.")
+        }
+        let anthropic = GatewayProfile(
+            displayName: "Live Anthropic",
+            provider: .anthropic,
+            baseURL: baseURL,
+            models: [GatewayModel(
+                modelID: anthropicModel, displayName: anthropicModel, isVerified: true
+            )]
+        )
+        let compatible = GatewayProfile(
+            displayName: "Live Compatible",
+            provider: .openAICompatible,
+            baseURL: baseURL,
+            models: [GatewayModel(
+                modelID: compatibleModel, displayName: compatibleModel, isVerified: true
+            )]
+        )
+        let url = try OpenCodeIntegration.generateConfiguration(
+            profiles: [anthropic, compatible],
+            apiKeys: [anthropic.id: anthropicKey, compatible.id: compatibleKey],
+            directory: URL(fileURLWithPath: outputPath, isDirectory: true)
+        )
+        let text = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertFalse(text.contains("\\/"), "Generated JSON must not escape slashes")
+        XCTAssertTrue(text.contains("{file:./keys/"), text)
+        print("RELAYDOCK_GENERATED_CONFIG=\(url.path)")
+    }
+
 }
