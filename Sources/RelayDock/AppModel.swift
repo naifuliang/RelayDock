@@ -785,11 +785,12 @@ final class AppModel: ObservableObject {
                 defaults.set("upToDate", forKey: Self.lastUpdateOutcomeKey)
                 defaults.set(currentVersion, forKey: Self.lastCheckedAppVersionKey)
                 if !silent {
+                    let version = currentVersion
                     setStatus {
                         L10n.t(
                             "RelayDock {0} is up to date",
                             zh: "RelayDock {0} 已是最新版本",
-                            currentVersion
+                            version
                         )
                     }
                 }

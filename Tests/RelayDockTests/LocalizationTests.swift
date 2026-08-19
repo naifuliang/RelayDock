@@ -53,6 +53,10 @@ final class LocalizationTests: XCTestCase {
         XCTAssertEqual(L10n.t("Ready", zh: "准备就绪"), "準備完了")
         XCTAssertEqual(L10n.t("Language", zh: "语言"), "言語")
         XCTAssertEqual(
+            L10n.t("Updates · v{0}", zh: "更新 · v{0}", "0.5.6"),
+            "アップデート · v0.5.6"
+        )
+        XCTAssertEqual(
             L10n.t("Switched to {0}", zh: "已切换到 {0}", "Gateway 1"),
             "Gateway 1 に切り替えました"
         )
@@ -86,7 +90,7 @@ final class LocalizationTests: XCTestCase {
             ["zh-Hant", "ja", "ko", "es", "fr", "de", "pt-BR"]
         )
         let expected = L10nCatalog.keys(for: .japanese)
-        XCTAssertEqual(expected.count, 263)
+        XCTAssertEqual(expected.count, 264)
         for language in languages {
             XCTAssertEqual(L10nCatalog.keys(for: language), expected, language.rawValue)
         }
@@ -95,6 +99,7 @@ final class LocalizationTests: XCTestCase {
         XCTAssertTrue(expected.contains("Endpoints"))
         XCTAssertTrue(expected.contains("Models"))
         XCTAssertTrue(expected.contains("Launchers"))
+        XCTAssertTrue(expected.contains("Updates · v{0}"))
         XCTAssertEqual(L10nCatalog.string(.japanese, english: "Ready"), "準備完了")
         XCTAssertEqual(L10nCatalog.string(.traditionalChinese, english: "Ready"), "準備就緒")
     }

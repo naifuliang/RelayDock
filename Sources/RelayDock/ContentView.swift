@@ -589,7 +589,7 @@ struct ContentView: View {
             HStack(spacing: 14) {
                 Image(systemName: "arrow.triangle.2.circlepath").font(.title2)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Updates · v\(model.currentVersion)").font(.headline)
+                    Text(L10n.t("Updates · v{0}", zh: "更新 · v{0}", model.currentVersion)).font(.headline)
                     if let release = model.availableRelease {
                         Text(L10n.t(
                             "RelayDock {0} is available; SHA-256, version, and the app signature are verified before install.",
