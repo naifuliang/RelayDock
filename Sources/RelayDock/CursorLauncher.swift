@@ -100,11 +100,11 @@ enum LauncherError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .cursorNotFound: return "没有在 /Applications 中找到 Cursor.app。"
-        case .cursorAlreadyRunning: return "Cursor 已经在运行。请先退出，或使用“重启并探测”。"
-        case .cursorDidNotQuit: return "Cursor 未能在三秒内退出，请手动退出后重试。"
-        case .cursorLaunchFailed: return "无法打开 Cursor.app。"
-        case .proxyStartTimedOut: return "RelayDock 探测代理启动超时。"
+        case .cursorNotFound: return L10n.t("Cursor.app was not found in /Applications.", zh: "没有在 /Applications 中找到 Cursor.app。")
+        case .cursorAlreadyRunning: return L10n.t("Cursor is already running. Quit it first, or use Restart and probe.", zh: "Cursor 已经在运行。请先退出，或使用“重启并探测”。")
+        case .cursorDidNotQuit: return L10n.t("Cursor did not quit within three seconds; quit it manually and retry.", zh: "Cursor 未能在三秒内退出，请手动退出后重试。")
+        case .cursorLaunchFailed: return L10n.t("Could not open Cursor.app.", zh: "无法打开 Cursor.app。")
+        case .proxyStartTimedOut: return L10n.t("The RelayDock probe proxy timed out while starting.", zh: "RelayDock 探测代理启动超时。")
         }
     }
 }

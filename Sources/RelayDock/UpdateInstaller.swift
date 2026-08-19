@@ -189,13 +189,13 @@ enum UpdateInstallError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidVersion: return "GitHub Release 版本字符串不安全，已停止安装。"
-        case .mountFailed: return "无法挂载已下载的更新磁盘映像。"
-        case .invalidImageContents: return "更新磁盘映像缺少 RelayDock App 或安装脚本。"
-        case .versionMismatch: return "更新包内版本与 GitHub Release 版本不一致。"
-        case .invalidSignature: return "更新包内 App 的代码签名校验失败。"
-        case .detachFailed: return "无法卸载更新磁盘映像。"
-        case .launcherFailed: return "无法打开 RelayDock 更新安装器。"
+        case .invalidVersion: return L10n.t("The GitHub Release version string is unsafe; installation was stopped.", zh: "GitHub Release 版本字符串不安全，已停止安装。")
+        case .mountFailed: return L10n.t("Could not mount the downloaded update disk image.", zh: "无法挂载已下载的更新磁盘映像。")
+        case .invalidImageContents: return L10n.t("The update disk image is missing the RelayDock app or installer script.", zh: "更新磁盘映像缺少 RelayDock App 或安装脚本。")
+        case .versionMismatch: return L10n.t("The version inside the update package does not match the GitHub Release.", zh: "更新包内版本与 GitHub Release 版本不一致。")
+        case .invalidSignature: return L10n.t("Code signature verification failed for the app inside the update package.", zh: "更新包内 App 的代码签名校验失败。")
+        case .detachFailed: return L10n.t("Could not unmount the update disk image.", zh: "无法卸载更新磁盘映像。")
+        case .launcherFailed: return L10n.t("Could not open the RelayDock update installer.", zh: "无法打开 RelayDock 更新安装器。")
         }
     }
 }

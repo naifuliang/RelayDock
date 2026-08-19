@@ -88,7 +88,7 @@ final class BridgeCertificateManagerTests: XCTestCase {
             verification: { false },
             rollback: { throw RollbackFailure() }
         )) { error in
-            XCTAssertTrue(error.localizedDescription.contains("证书信任验证失败"))
+            XCTAssertTrue(error.localizedDescription.contains("Certificate trust verification failed"))
             XCTAssertTrue(error.localizedDescription.contains("rollback failed"))
         }
     }

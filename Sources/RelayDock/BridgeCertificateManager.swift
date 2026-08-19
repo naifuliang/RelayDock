@@ -350,19 +350,41 @@ enum BridgeCertificateError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidExistingMaterial:
-            return "现有 Anthropic Bridge 证书材料不完整或不再有效；请先一键卸载后重新安装。"
+            return L10n.t(
+                "Existing Anthropic Bridge certificate material is incomplete or no longer valid; uninstall it, then install again.",
+                zh: "现有 Anthropic Bridge 证书材料不完整或不再有效；请先一键卸载后重新安装。"
+            )
         case .generationFailed:
-            return "无法生成限定于 api.anthropic.com 的 Bridge 证书。"
+            return L10n.t(
+                "Could not generate a Bridge certificate scoped to api.anthropic.com.",
+                zh: "无法生成限定于 api.anthropic.com 的 Bridge 证书。"
+            )
         case .trustVerificationFailed:
-            return "证书授权完成后未能通过 api.anthropic.com SSL 信任验证。"
+            return L10n.t(
+                "Certificate authorization finished, but api.anthropic.com SSL trust verification failed.",
+                zh: "证书授权完成后未能通过 api.anthropic.com SSL 信任验证。"
+            )
         case .trustRemovalFailed:
-            return "系统仍信任 Anthropic Bridge 证书，RelayDock 已保留证书材料以便重试卸载。"
+            return L10n.t(
+                "The system still trusts the Anthropic Bridge certificate; RelayDock kept the certificate material so you can retry uninstall.",
+                zh: "系统仍信任 Anthropic Bridge 证书，RelayDock 已保留证书材料以便重试卸载。"
+            )
         case .defaultKeychainUnavailable:
-            return "无法确定当前用户的默认登录 Keychain；证书信任设置未更改。"
+            return L10n.t(
+                "Could not determine the current user’s default login Keychain; certificate trust settings were not changed.",
+                zh: "无法确定当前用户的默认登录 Keychain；证书信任设置未更改。"
+            )
         case let .trustInstallationRollbackFailed(verification, rollback):
-            return "证书信任验证失败，且自动撤销未完成：\(verification)；撤销错误：\(rollback)"
+            return L10n.t(
+                "Certificate trust verification failed, and automatic revocation did not finish: {0}; revoke error: {1}",
+                zh: "证书信任验证失败，且自动撤销未完成：{0}；撤销错误：{1}",
+                verification,
+                rollback
+            )
         case let .commandFailed(message):
-            return message.isEmpty ? "证书系统命令执行失败。" : "证书系统命令失败：\(message)"
+            return message.isEmpty
+                ? L10n.t("A certificate system command failed.", zh: "证书系统命令执行失败。")
+                : L10n.t("Certificate system command failed: {0}", zh: "证书系统命令失败：{0}", message)
         }
     }
 }

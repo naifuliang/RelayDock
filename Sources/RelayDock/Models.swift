@@ -118,9 +118,9 @@ enum EndpointPreset: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .openAI: return "ChatGPT / OpenAI"
+        case .openAI: return L10n.t("ChatGPT / OpenAI", zh: "ChatGPT / OpenAI")
         case .kimi: return "Kimi Code"
-        case .arkCodingPlan: return "火山方舟"
+        case .arkCodingPlan: return L10n.t("Volcengine Ark", zh: "火山方舟")
         }
     }
 
@@ -134,17 +134,35 @@ enum EndpointPreset: String, CaseIterable, Identifiable {
 
     var detail: String {
         switch self {
-        case .openAI: return "OpenAI Responses API；ChatGPT Plus/Pro 不能替代 API Key。"
-        case .kimi: return "Kimi Code 会员服务的 OpenAI 兼容接口。"
-        case .arkCodingPlan: return "方舟 Coding Plan 专用网关，预置推荐模型兜底。"
+        case .openAI: return L10n.t(
+            "OpenAI Responses API; ChatGPT Plus/Pro is not a substitute for an API key.",
+            zh: "OpenAI Responses API；ChatGPT Plus/Pro 不能替代 API Key。"
+        )
+        case .kimi: return L10n.t(
+            "OpenAI-compatible API for the Kimi Code membership service.",
+            zh: "Kimi Code 会员服务的 OpenAI 兼容接口。"
+        )
+        case .arkCodingPlan: return L10n.t(
+            "Ark Coding Plan gateway, with recommended model aliases as a fallback.",
+            zh: "方舟 Coding Plan 专用网关，预置推荐模型兜底。"
+        )
         }
     }
 
     var credentialHelp: String {
         switch self {
-        case .openAI: return "需要 OpenAI Platform API Key；与 ChatGPT 登录或订阅分开。"
-        case .kimi: return "需要 Kimi Code Console 创建的专用 Key；与开放平台 Key 不互通。"
-        case .arkCodingPlan: return "需要已开通 Coding Plan 后由方舟控制台签发的 API Key。"
+        case .openAI: return L10n.t(
+            "Requires an OpenAI Platform API key; this is separate from ChatGPT sign-in or a subscription.",
+            zh: "需要 OpenAI Platform API Key；与 ChatGPT 登录或订阅分开。"
+        )
+        case .kimi: return L10n.t(
+            "Requires a dedicated key created in the Kimi Code Console; it is not interchangeable with a Kimi API Platform key.",
+            zh: "需要 Kimi Code Console 创建的专用 Key；与开放平台 Key 不互通。"
+        )
+        case .arkCodingPlan: return L10n.t(
+            "Requires an API key issued by the Ark console after Coding Plan is enabled.",
+            zh: "需要已开通 Coding Plan 后由方舟控制台签发的 API Key。"
+        )
         }
     }
 
@@ -349,20 +367,29 @@ enum ProbeVerdict: Equatable {
 
     var title: String {
         switch self {
-        case .waiting: return "等待 Cursor 请求"
-        case .directAnthropic: return "检测到 Anthropic 本机直连"
-        case .cursorBackendOnly: return "目前只检测到 Cursor 后端"
+        case .waiting: return L10n.t("Waiting for a Cursor request", zh: "等待 Cursor 请求")
+        case .directAnthropic: return L10n.t("Detected a local Anthropic connection", zh: "检测到 Anthropic 本机直连")
+        case .cursorBackendOnly: return L10n.t("Only Cursor backend traffic detected so far", zh: "目前只检测到 Cursor 后端")
         }
     }
 
     var explanation: String {
         switch self {
         case .waiting:
-            return "通过 RelayDock 启动 Cursor 后，用 Anthropic BYOK 发送一条消息。"
+            return L10n.t(
+                "Launch Cursor through RelayDock, then send an Anthropic BYOK message.",
+                zh: "通过 RelayDock 启动 Cursor 后，用 Anthropic BYOK 发送一条消息。"
+            )
         case .directAnthropic:
-            return "这台机器上的 Cursor 直接连接 api.anthropic.com，可以继续启用定向 TLS Bridge。"
+            return L10n.t(
+                "Cursor on this Mac is connecting to api.anthropic.com directly, so you can enable the domain-scoped TLS Bridge.",
+                zh: "这台机器上的 Cursor 直接连接 api.anthropic.com，可以继续启用定向 TLS Bridge。"
+            )
         case .cursorBackendOnly:
-            return "请求可能由 Cursor 后端代发。继续发送一条 Anthropic BYOK 消息以确认。"
+            return L10n.t(
+                "Requests may be sent by the Cursor backend. Send another Anthropic BYOK message to confirm.",
+                zh: "请求可能由 Cursor 后端代发。继续发送一条 Anthropic BYOK 消息以确认。"
+            )
         }
     }
 }

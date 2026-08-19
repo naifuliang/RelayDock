@@ -267,14 +267,14 @@ enum UpstreamProxyError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidEnvironmentProxy: return "本地 HTTPS_PROXY/ALL_PROXY 配置无效；RelayDock 已停止，未绕过代理。"
-        case .invalidSystemProxy: return "macOS 默认代理配置无效；RelayDock 已停止，未绕过代理。"
-        case .unsupportedSOCKS: return "当前版本尚不能安全链式转发 SOCKS 默认代理；RelayDock 已停止，未改为直连。"
-        case .unsupportedTLSProxy: return "当前版本尚不能安全链式转发 TLS 加密的上游代理；请使用本地代理提供的 HTTP CONNECT 端口。"
-        case .unsupportedPAC: return "当前版本尚不能安全执行 PAC 默认代理；RelayDock 已停止，未改为直连。"
-        case let .connectRejected(status): return "本地默认代理拒绝 CONNECT（HTTP \(status)）。"
-        case .malformedConnectResponse: return "本地默认代理返回了无效的 CONNECT 响应。"
-        case .connectTimedOut: return "连接本地默认代理超时；RelayDock 已停止，未绕过代理。"
+        case .invalidEnvironmentProxy: return L10n.t("The local HTTPS_PROXY/ALL_PROXY setting is invalid; RelayDock stopped and did not bypass the proxy.", zh: "本地 HTTPS_PROXY/ALL_PROXY 配置无效；RelayDock 已停止，未绕过代理。")
+        case .invalidSystemProxy: return L10n.t("The macOS default proxy setting is invalid; RelayDock stopped and did not bypass the proxy.", zh: "macOS 默认代理配置无效；RelayDock 已停止，未绕过代理。")
+        case .unsupportedSOCKS: return L10n.t("This version cannot safely chain the default SOCKS proxy; RelayDock stopped and did not fall back to a direct connection.", zh: "当前版本尚不能安全链式转发 SOCKS 默认代理；RelayDock 已停止，未改为直连。")
+        case .unsupportedTLSProxy: return L10n.t("This version cannot safely chain a TLS-encrypted upstream proxy; use the HTTP CONNECT port provided by the local proxy.", zh: "当前版本尚不能安全链式转发 TLS 加密的上游代理；请使用本地代理提供的 HTTP CONNECT 端口。")
+        case .unsupportedPAC: return L10n.t("This version cannot safely evaluate a PAC default proxy; RelayDock stopped and did not fall back to a direct connection.", zh: "当前版本尚不能安全执行 PAC 默认代理；RelayDock 已停止，未改为直连。")
+        case let .connectRejected(status): return L10n.t("The local default proxy rejected CONNECT (HTTP {0}).", zh: "本地默认代理拒绝 CONNECT（HTTP {0}）。", "\(status)")
+        case .malformedConnectResponse: return L10n.t("The local default proxy returned an invalid CONNECT response.", zh: "本地默认代理返回了无效的 CONNECT 响应。")
+        case .connectTimedOut: return L10n.t("Timed out connecting to the local default proxy; RelayDock stopped and did not bypass the proxy.", zh: "连接本地默认代理超时；RelayDock 已停止，未绕过代理。")
         }
     }
 }

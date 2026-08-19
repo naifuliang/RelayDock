@@ -146,11 +146,11 @@ enum UpdateError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidResponse: return "GitHub 更新服务返回了无效响应。"
-        case .missingDMG: return "最新 Release 中没有找到 DMG 安装包。"
-        case .missingDigest: return "GitHub 尚未提供更新包的 SHA-256 digest，已停止下载。"
-        case .unsupportedDigest: return "GitHub 更新包 digest 格式不受支持，已停止下载。"
-        case .checksumMismatch: return "下载的更新包未通过 GitHub SHA-256 校验。"
+        case .invalidResponse: return L10n.t("The GitHub update service returned an invalid response.", zh: "GitHub 更新服务返回了无效响应。")
+        case .missingDMG: return L10n.t("The latest release does not include a DMG installer.", zh: "最新 Release 中没有找到 DMG 安装包。")
+        case .missingDigest: return L10n.t("GitHub has not published a SHA-256 digest for the update package; download was stopped.", zh: "GitHub 尚未提供更新包的 SHA-256 digest，已停止下载。")
+        case .unsupportedDigest: return L10n.t("The GitHub update package digest format is not supported; download was stopped.", zh: "GitHub 更新包 digest 格式不受支持，已停止下载。")
+        case .checksumMismatch: return L10n.t("The downloaded update package failed GitHub SHA-256 verification.", zh: "下载的更新包未通过 GitHub SHA-256 校验。")
         }
     }
 }
