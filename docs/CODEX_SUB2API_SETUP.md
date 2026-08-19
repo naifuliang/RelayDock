@@ -71,10 +71,11 @@ Procedure:
 9. Stop and ask before deleting or replacing anything.
 
 After the administrator work is complete, remind me to add the API base as an
-OpenAI Compatible endpoint in RelayDock, save the key there, sync models, test
-all models, and import only verified models into Cursor/OpenCode. If GET /v1/models
-does not advertise the aliases, remind me to replace each raw
-claude-* model ID in RelayDock with its matching rd-* alias before testing.
+OpenAI Compatible endpoint in RelayDock, save the key there, and sync models.
+Before testing any model, inspect the synchronized catalog. If GET /v1/models
+does not advertise the aliases, replace each raw claude-* model ID in RelayDock
+with its matching rd-* alias. Only then test all models and import verified
+models into Cursor/OpenCode.
 ```
 
 ## Import the result into RelayDock
@@ -83,13 +84,15 @@ claude-* model ID in RelayDock with its matching rd-* alias before testing.
 2. Enter the public Sub2API API base. RelayDock normalizes an unversioned base
    to its `/v1` API root where appropriate.
 3. Paste the new group-scoped key into RelayDock and save it to macOS Keychain.
-4. Select **Sync models**, followed by **Test all models**.
+4. Select **Sync models**. Do not select **Test all models** yet.
 5. Check that the synchronized catalog contains every expected `rd-*` alias and
    does not select raw `claude-*` IDs for Cursor. If the Sub2API model catalog
    cannot advertise route aliases, edit the synchronized raw Claude entries in
    RelayDock and replace each model ID with the corresponding `rd-*` alias from
-   Codex's reported mapping, then run **Test all models** again.
-6. Import only the verified `rd-*` aliases and working OpenAI models into
+   Codex's reported mapping.
+6. Only after the alias inspection and any required replacements, select
+   **Test all models**.
+7. Import only the verified `rd-*` aliases and working OpenAI models into
    Cursor or OpenCode.
 
 If the Sub2API administrator UI or routing schema differs from the prompt,
@@ -107,7 +110,7 @@ existing configuration.
 配置完成后，在 RelayDock 中添加一个 **OpenAI Compatible** Endpoint，填入
 Sub2API 的公开 API 地址。先结束 Computer Use 任务，再由用户自己在后台创建
 `RelayDock Composite` 专用 Key，并直接粘贴到 RelayDock；不要让 Codex 创建、查看或
-测试这个 Key。然后依次执行“同步模型”和“测试全部模型”。如果 `/v1/models` 没有
-返回 `rd-*`，请按照 Codex 报告的映射，在 RelayDock 中把同步到的原始 `claude-*`
-模型 ID 手动替换成对应 `rd-*` 别名，再重新测试。只把测试通过的 `rd-*` Claude
-别名和 OpenAI 模型导入 Cursor/OpenCode。
+测试这个 Key。先执行“同步模型”，暂时不要测试。如果 `/v1/models` 没有返回
+`rd-*`，请先按照 Codex 报告的映射，在 RelayDock 中把同步到的原始 `claude-*`
+模型 ID 手动替换成对应 `rd-*` 别名；确认别名无误后再执行“测试全部模型”。只把
+测试通过的 `rd-*` Claude 别名和 OpenAI 模型导入 Cursor/OpenCode。

@@ -18,6 +18,16 @@ final class DocumentationTests: XCTestCase {
         XCTAssertTrue(guide.contains("If GET /v1/models"))
         XCTAssertTrue(guide.contains("replace each model ID with the corresponding `rd-*` alias"))
 
+        let importSection = try XCTUnwrap(
+            guide.components(separatedBy: "## Import the result into RelayDock").last?
+                .components(separatedBy: "If the Sub2API administrator UI").first
+        )
+        let syncPosition = try XCTUnwrap(importSection.range(of: "**Sync models**")?.lowerBound)
+        let inspectPosition = try XCTUnwrap(importSection.range(of: "Check that the synchronized catalog")?.lowerBound)
+        let testPosition = try XCTUnwrap(importSection.range(of: "**Test all models**", options: [], range: inspectPosition..<importSection.endIndex)?.lowerBound)
+        XCTAssertLessThan(syncPosition, inspectPosition)
+        XCTAssertLessThan(inspectPosition, testPosition)
+
         let readme = try String(
             contentsOf: repositoryRoot.appendingPathComponent("README.md"),
             encoding: .utf8
