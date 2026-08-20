@@ -19,6 +19,11 @@ struct BridgeCertificateMaterial: Equatable {
     }
 }
 
+/// Removes certificate material created by RelayDock versions before 0.6.0.
+///
+/// No active setup path creates or trusts this material. The remaining cleanup
+/// support lets users safely remove it through RelayDock's local-data cleanup
+/// and bundled uninstaller after upgrading.
 enum BridgeCertificateManager {
     static let hostname = "api.anthropic.com"
     static let commonName = "RelayDock Anthropic Bridge"

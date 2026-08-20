@@ -25,7 +25,6 @@ struct ContentView: View {
                     endpointConfigurationCard
                     launcherCard
                     updateCard
-                    diagnosticsCard
                     footer
                 }
                 .padding(28)
@@ -445,8 +444,8 @@ struct ContentView: View {
                     launcherTile(
                         title: "Cursor",
                         detail: L10n.t(
-                            "Write BYOK settings in one transaction, start the local domain-scoped Bridge, then open Cursor.",
-                            zh: "事务写入 BYOK 配置，启动本地域限定 Bridge 后打开。"
+                            "Write OpenAI Compatible BYOK settings in one transaction, then open Cursor.",
+                            zh: "事务写入 OpenAI Compatible BYOK 配置，然后打开 Cursor。"
                         ),
                         installed: model.cursorInstalled,
                         icon: "cursorarrow",
@@ -455,8 +454,8 @@ struct ContentView: View {
                     )
                 }
                 Text(L10n.t(
-                    "Only models that passed per-model verification are imported. Any failure in the Cursor database schema, key migration, or Bridge verification rolls back automatically.",
-                    zh: "只导入已经逐模型验证为可用的模型。Cursor 数据库结构、Key 迁移或 Bridge 验证任一步失败都会自动回滚。"
+                    "Only models that passed per-model verification are imported. Any failure in the Cursor database schema or key migration rolls back automatically.",
+                    zh: "只导入已经逐模型验证为可用的模型。Cursor 数据库结构或 Key 迁移任一步失败都将自动回滚。"
                 ))
                     .font(.caption).foregroundStyle(.secondary)
                 Divider()
@@ -467,30 +466,14 @@ struct ContentView: View {
 
     private var cursorBYOKAssistant: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Label(L10n.t("Cursor one-click Sub2API", zh: "Cursor 一键接入 Sub2API"), systemImage: "point.3.connected.trianglepath.dotted")
-                    .font(.headline)
-                Spacer()
-                if model.bridgeRunning {
-                    Label("Bridge · 127.0.0.1:\(model.bridgePort ?? 0)", systemImage: "checkmark.circle.fill")
-                        .font(.caption).foregroundStyle(.green)
-                }
-            }
+            Label(L10n.t("Cursor one-click Sub2API", zh: "Cursor 一键接入 Sub2API"), systemImage: "cursorarrow")
+                .font(.headline)
             Text(L10n.t(
-                "OpenAI Compatible: write the OpenAI key, Override Base URL, and verified models. Anthropic: write only the Claude key; api.anthropic.com is forwarded by the local Bridge using a domain-scoped certificate to the selected endpoint.",
-                zh: "OpenAI Compatible：写入 OpenAI Key、Override Base URL 和已验证模型。Anthropic：只写 Claude Key；api.anthropic.com 由本地 Bridge 使用限定域名证书转发到所选 Endpoint。"
+                "RelayDock writes the OpenAI key, Override Base URL, and verified OpenAI Compatible models. Cursor's Anthropic cloud path does not support a custom local endpoint; expose those models through OpenAI-compatible aliases instead.",
+                zh: "RelayDock 写入 OpenAI Key、Override Base URL 和已验证的 OpenAI Compatible 模型。Cursor 的 Anthropic 云端路径不支持自定义本地 Endpoint；请通过 OpenAI Compatible 别名暴露这类模型。"
             ))
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Label(
-                L10n.t(
-                    "Egress inherits HTTP_PROXY / HTTPS_PROXY / ALL_PROXY if they were already set at launch; otherwise it follows the macOS default proxy and exceptions. Enabling the Bridge does not force a direct connection.",
-                    zh: "出口会继承启动时已有的 HTTP_PROXY / HTTPS_PROXY / ALL_PROXY；否则遵循 macOS 默认代理和例外规则。不会因启用 Bridge 改成直接出网。"
-                ),
-                systemImage: "arrow.triangle.branch"
-            )
-            .font(.caption).foregroundStyle(.secondary)
-
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
                 GridRow {
                     Text("OpenAI Compatible").font(.caption.weight(.semibold))
@@ -503,28 +486,6 @@ struct ContentView: View {
                     }
                     .labelsHidden()
                 }
-                GridRow {
-                    Text("Anthropic").font(.caption.weight(.semibold))
-                    Picker("Anthropic", selection: $model.cursorAnthropicProfileID) {
-                        Text(L10n.t("Don’t import", zh: "不导入")).tag(Optional<UUID>.none)
-                        ForEach(model.cursorAnthropicProfiles) { profile in
-                            Text(L10n.t("{0} · {1} models", zh: "{0} · {1} 模型", profile.displayName, "\(model.cursorImportableModelCount(for: profile))"))
-                                .tag(Optional(profile.id))
-                        }
-                    }
-                    .labelsHidden()
-                }
-            }
-
-            if model.cursorAnthropicProfileID != nil {
-                Label(
-                    L10n.t(
-                        "The first use asks macOS to authorize a certificate. The SAN contains only api.anthropic.com and CA:FALSE; other hostnames are not decrypted, and you can remove it at any time.",
-                        zh: "首次使用会请求一次 macOS 证书授权。证书 SAN 仅含 api.anthropic.com、CA:FALSE；不会解密其他域名，可随时一键移除。"
-                    ),
-                    systemImage: "lock.shield"
-                )
-                .font(.caption).foregroundStyle(.secondary)
             }
 
             HStack(spacing: 8) {
@@ -536,22 +497,9 @@ struct ContentView: View {
                 .buttonStyle(.borderedProminent)
                 .disabled(model.isBusy || !model.cursorInstalled)
 
-                Button(L10n.t("Install Bridge certificate only", zh: "仅安装 Bridge 证书")) { model.installAnthropicBridgeCertificate() }
-                    .buttonStyle(.bordered)
-                    .disabled(model.isBusy)
-                Button(L10n.t("Uninstall Bridge", zh: "卸载 Bridge")) { model.removeAnthropicBridge() }
-                    .buttonStyle(.bordered)
-                    .disabled(model.isBusy)
                 Button(L10n.t("Restore last Cursor settings", zh: "恢复上次 Cursor 配置")) { model.restoreLatestCursorConfiguration() }
                     .buttonStyle(.bordered)
                     .disabled(model.isBusy || !model.cursorInstalled)
-
-                Spacer()
-                Text(model.bridgeCertificateTrusted
-                     ? L10n.t("Certificate verified", zh: "证书已验证")
-                     : L10n.t("Certificate not verified", zh: "证书未验证"))
-                    .font(.caption)
-                    .foregroundStyle(model.bridgeCertificateTrusted ? .green : .secondary)
             }
         }
         .padding(14)
@@ -649,38 +597,6 @@ struct ContentView: View {
         case let .failed(message, checkedAt):
             Label(L10n.t("Check failed · {0} · {1}", zh: "检查失败 · {0} · {1}", model.language.formatTime(checkedAt), message), systemImage: "exclamationmark.circle.fill")
                 .font(.caption).foregroundStyle(.red).lineLimit(2)
-        }
-    }
-
-    private var diagnosticsCard: some View {
-        cleanCard {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text(L10n.t("Recent connections", zh: "最近连接")).font(.headline)
-                    Spacer()
-                    Button(L10n.t("Clear", zh: "清除")) { model.clearDiagnostics() }.disabled(model.events.isEmpty)
-                }
-                if model.events.isEmpty {
-                    Text(L10n.t(
-                        "No connections yet. After you launch Cursor through the RelayDock proxy, destinations appear here.",
-                        zh: "暂无连接。通过 RelayDock 代理启动 Cursor 后，连接目标会显示在这里。"
-                    ))
-                        .font(.callout).foregroundStyle(.secondary).padding(.vertical, 12)
-                } else {
-                    ForEach(model.events.prefix(30)) { event in
-                        HStack {
-                            Image(systemName: event.isAnthropic ? "checkmark.seal.fill" : "arrow.left.arrow.right")
-                                .foregroundStyle(event.isAnthropic ? .green : .secondary)
-                            Text(event.host).font(.system(.body, design: .monospaced))
-                            Text(":\(event.port)").foregroundStyle(.secondary)
-                            Spacer()
-                            Text(event.kind.rawValue).font(.caption).foregroundStyle(.secondary)
-                            Text(event.timestamp, style: .time).font(.caption).foregroundStyle(.tertiary)
-                        }
-                        Divider()
-                    }
-                }
-            }
         }
     }
 
@@ -809,8 +725,6 @@ struct MenuBarView: View {
         Link(L10n.t("Help & Setup Guide", zh: "帮助与配置说明"), destination: RelayDockLinks.codexSub2APISetupGuide)
         Divider()
         Button(L10n.t("Quit RelayDock", zh: "退出 RelayDock")) {
-            model.stopProbe()
-            model.stopAnthropicBridge()
             NSApp.terminate(nil)
         }
     }

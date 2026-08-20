@@ -18,7 +18,7 @@
 </head>
 <body>
   <h1>安装 RelayDock</h1>
-  <p class="subtle">RelayDock 0.5.7 · Codex Desktop 配置说明直达入口</p>
+  <p class="subtle">RelayDock 0.6.0 · OpenAI Compatible Cursor 配置与 OpenCode</p>
 
   <div class="card">
     <strong>最简单：复制一条命令</strong>
@@ -27,7 +27,7 @@
     <p>输入 <code>y</code> 确认，再按提示输入 Mac 登录密码。脚本会从 GitHub 下载最新版本，使用发布的 SHA-256 与现有 App 签名检查文件完整性，然后安装并启动 RelayDock。这些检查不等同于 Apple 公证。</p>
   </div>
 
-  <p class="note"><strong>安全范围：</strong>App 安装器不会全局关闭 Gatekeeper、安装受信任根 CA 或修改系统代理。对于当前未公证测试版，它只会移除 RelayDock 安装副本的 quarantine 属性，并创建稳定的 RelayDock 本地签名身份；安装 App 本身不会添加 TLS 信任。以后若为 Cursor 选择 Anthropic Endpoint，RelayDock 才会另行请求 macOS 信任一个 SAN 仅含 <code>api.anthropic.com</code>、<code>CA:FALSE</code> 的叶证书。卸载器会删除两种身份和该信任。</p>
+  <p class="note"><strong>安全范围：</strong>App 安装器不会全局关闭 Gatekeeper、安装受信任根 CA、修改系统代理或安装 TLS 劫持证书。对于当前未公证测试版，它只会移除 RelayDock 安装副本的 quarantine 属性，并创建稳定的 RelayDock 本地签名身份。卸载器还会清理旧版 Bridge 遗留的证书材料。</p>
   <p><strong>从旧版升级：</strong>RelayDock 启动、切换 Endpoint 和“同步模型”等普通操作不会打开旧 ACL 绑定的 Keychain 条目。发现旧版凭据仓库或独立 Key 时，界面会显示“一次性修复 Keychain”；只有你主动点击后 macOS 才可能要求一次授权。所有旧 Key 都读取成功且新的 v3 仓库通过非交互验证后才会提交，失败不会删除原数据。即使旧条目无法静默删除，空的已验证 v3 标记也会防止它们在删除最后一个 Key 后被再次导入。</p>
   <p><strong>签名连续性：</strong>一键脚本、ZIP、DMG 与应用内更新共用同一个事务安装器。替换旧 App 前会比较 designated requirement，安装后再次验证版本、签名和 requirement；任何失败都会恢复旧 App。损坏的本地签名 identity 不会被静默轮换，修复必须单独确认，原材料会保留在 Recovery 目录。</p>
   <p><strong>不要手动覆盖 App：</strong>发布包中的原始 App 保存在隐藏的 <code>.payload</code> 内，DMG 不再提供拖到 Applications 的入口。请使用安装脚本，避免绕过签名连续性与回滚检查。</p>
@@ -63,15 +63,15 @@
 
   <h2>Cursor 一键配置</h2>
   <ol>
-    <li>先保存并验证至少一个 OpenAI Compatible 和/或 Anthropic Endpoint。</li>
-    <li>在“Cursor 一键接入 Sub2API”中分别选择 Endpoint，点击“一键配置并打开 Cursor”。</li>
-    <li>OpenAI Compatible 会写入 Cursor 的 OpenAI Key、Override Base URL 与已验证模型 ID；Anthropic 只写 Claude Key，并由本地 Bridge 将 Cursor 固定的 <code>api.anthropic.com</code> 目标转到所选 Endpoint。</li>
-    <li>首次 Anthropic 配置会请求一次 macOS 证书授权。证书、Bridge、Cursor 数据库事务和 Cursor 加密 Key 迁移全部验证成功后，界面才会显示成功；失败自动回滚。</li>
+    <li>先保存并验证一个 OpenAI Compatible Endpoint。</li>
+    <li>在“Cursor 一键接入 Sub2API”中选择该 Endpoint，点击“一键配置并打开 Cursor”。</li>
+    <li>RelayDock 会写入 Cursor 的 OpenAI Key、Override Base URL 与已验证模型 ID。Cursor 的 Anthropic 云端路径不支持自定义本地 Endpoint；请通过不以 <code>claude-*</code> 开头的 OpenAI Compatible 别名暴露这类模型。</li>
+    <li>Cursor 数据库事务和 Cursor 加密 Key 迁移验证成功后，界面才会显示成功；失败自动回滚。</li>
   </ol>
 
-  <p class="note"><strong>Bridge 范围与出口：</strong>只监听本机回环地址。非目标域名仍是原样加密隧道；只有 <code>api.anthropic.com</code> 会终止 TLS 并改写 Endpoint。Bridge 会优先继承启动时已有的 <code>HTTP_PROXY</code>/<code>HTTPS_PROXY</code>/<code>ALL_PROXY</code>，否则遵循 macOS 默认 HTTP 代理及其例外规则，再通过 HTTP CONNECT 出口；不会静默改成直连。不支持的 SOCKS/PAC 模式会明确停止。RelayDock 自己的模型测试和 GitHub 更新也使用同一出口选择。请求体、响应、Prompt、Header 与 Key 均不记录。使用该路线时需要保持 RelayDock 运行。</p>
+  <p class="note"><strong>网络行为：</strong>RelayDock 不代理或劫持 Cursor 流量。RelayDock 自己的模型测试和 GitHub 更新会优先使用启动时已有的 <code>HTTP_PROXY</code>/<code>HTTPS_PROXY</code>/<code>ALL_PROXY</code>，否则遵循 macOS 默认 HTTP 代理及其例外规则；不支持的 SOCKS/PAC 模式会明确失败，不会静默绕过代理。</p>
 
   <h2>卸载</h2>
-  <p>使用 <code>/bin/zsh</code> 运行 <code>Uninstall RelayDock.command</code>。它会删除 App、Endpoint 与 Keychain API Key、OpenCode 配置、Cursor 回滚文件、Anthropic Bridge 证书/私钥/信任，以及私有本地签名 Keychain。RelayDock 不会安装根 CA，也不会修改全局系统代理。</p>
+  <p>使用 <code>/bin/zsh</code> 运行 <code>Uninstall RelayDock.command</code>。它会删除 App、Endpoint 与 Keychain API Key、OpenCode 配置、Cursor 回滚文件、旧版 Bridge 遗留的证书材料，以及私有本地签名 Keychain。RelayDock 不会安装根 CA，也不会修改全局系统代理。</p>
 </body>
 </html>

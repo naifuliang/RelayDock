@@ -7,10 +7,14 @@ enum CursorModelRouting {
             guard model.isEnabled, model.isVerified else { return nil }
             let modelID = model.modelID.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !modelID.isEmpty else { return nil }
-            let isClaudeRoute = modelID.lowercased().hasPrefix("claude-")
             switch profile.provider {
-            case .anthropic: return isClaudeRoute ? modelID : nil
-            case .openAICompatible: return isClaudeRoute ? nil : modelID
+            // Cursor routes `claude-*` names through its Anthropic integration,
+            // which cannot accept a custom base URL. Gateways should expose
+            // those models through OpenAI-compatible aliases instead.
+            case .openAICompatible:
+                return modelID.lowercased().hasPrefix("claude-") ? nil : modelID
+            case .anthropic:
+                return nil
             case .openAIResponses, .azureOpenAI: return nil
             }
         }
@@ -20,7 +24,6 @@ enum CursorModelRouting {
 struct CursorImportRequest: Equatable {
     let openAIBaseURL: String?
     let openAIKey: String?
-    let anthropicKey: String?
     let modelIDs: [String]
 }
 
@@ -40,15 +43,11 @@ enum CursorConfiguration {
         "src.vs.platform.reactivestorage.browser.reactiveStorageServiceImpl.persistentStorage.applicationUser"
     static let openAILegacyKey = "cursorAuth/openAIKey"
     static let openAISecretKey = "secret://cursorAuth/openAIKey"
-    static let claudeLegacyKey = "cursorAuth/claudeKey"
-    static let claudeSecretKey = "secret://cursorAuth/claudeKey"
 
     private static let affectedKeys = [
         persistentStorageKey,
         openAILegacyKey,
         openAISecretKey,
-        claudeLegacyKey,
-        claudeSecretKey
     ]
 
     static var databaseURL: URL {
@@ -89,9 +88,6 @@ enum CursorConfiguration {
                 .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             storage["useOpenAIKey"] = true
         }
-        if request.anthropicKey != nil {
-            storage["useClaudeKey"] = true
-        }
         mergeModels(models, into: &storage)
         let updatedStorage = try JSONSerialization.data(withJSONObject: storage, options: [.sortedKeys])
         guard let updatedStorageValue = String(data: updatedStorage, encoding: .utf8) else {
@@ -114,10 +110,6 @@ enum CursorConfiguration {
                     try database.removeValue(forKey: openAISecretKey)
                     try database.setValue(key, forKey: openAILegacyKey)
                 }
-                if let key = request.anthropicKey?.trimmingCharacters(in: .whitespacesAndNewlines) {
-                    try database.removeValue(forKey: claudeSecretKey)
-                    try database.setValue(key, forKey: claudeLegacyKey)
-                }
             }
         } catch {
             try? FileManager.default.removeItem(at: backupURL)
@@ -128,12 +120,6 @@ enum CursorConfiguration {
             expectedMigrations.append(CursorKeyMigration(
                 legacyKey: openAILegacyKey,
                 secretKey: openAISecretKey
-            ))
-        }
-        if request.anthropicKey != nil {
-            expectedMigrations.append(CursorKeyMigration(
-                legacyKey: claudeLegacyKey,
-                secretKey: claudeSecretKey
             ))
         }
         return CursorImportReceipt(
@@ -223,15 +209,11 @@ enum CursorConfiguration {
 
     private static func validate(_ request: CursorImportRequest) throws {
         let openAIKey = request.openAIKey?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let anthropicKey = request.anthropicKey?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if request.openAIBaseURL == nil, anthropicKey?.isEmpty != false {
+        if request.openAIBaseURL == nil {
             throw CursorConfigurationError.noRouteSelected
         }
         if request.openAIBaseURL != nil, openAIKey?.isEmpty != false {
             throw CursorConfigurationError.missingOpenAIKey
-        }
-        if request.anthropicKey != nil, anthropicKey?.isEmpty != false {
-            throw CursorConfigurationError.missingAnthropicKey
         }
         if let value = request.openAIBaseURL,
            EndpointValidator.normalizedURL(from: value) == nil {
@@ -414,7 +396,6 @@ enum CursorConfigurationError: LocalizedError {
     case cursorIsRunning
     case noRouteSelected
     case missingOpenAIKey
-    case missingAnthropicKey
     case invalidOpenAIBaseURL
     case unsupportedCursorVersion(String)
     case unsupportedDatabaseSchema
@@ -427,9 +408,8 @@ enum CursorConfigurationError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .cursorIsRunning: return L10n.t("Quit Cursor completely before running one-click import.", zh: "请先完全退出 Cursor，再执行一键导入。")
-        case .noRouteSelected: return L10n.t("Select at least one OpenAI Compatible or Anthropic endpoint.", zh: "请至少选择一个 OpenAI Compatible 或 Anthropic Endpoint。")
+        case .noRouteSelected: return L10n.t("Select an OpenAI Compatible endpoint.", zh: "请选择一个 OpenAI Compatible Endpoint。")
         case .missingOpenAIKey: return L10n.t("The selected OpenAI Compatible endpoint has no API key.", zh: "所选 OpenAI Compatible Endpoint 没有 API Key。")
-        case .missingAnthropicKey: return L10n.t("The selected Anthropic endpoint has no API key.", zh: "所选 Anthropic Endpoint 没有 API Key。")
         case .invalidOpenAIBaseURL: return L10n.t("The selected OpenAI Compatible Base URL is invalid.", zh: "所选 OpenAI Compatible Base URL 无效。")
         case let .unsupportedCursorVersion(version): return L10n.t("Cursor {0} has not been verified for configuration import.", zh: "Cursor {0} 尚未通过配置导入兼容性验证。", version)
         case .unsupportedDatabaseSchema: return L10n.t("The Cursor settings database schema has changed; RelayDock stopped writing.", zh: "Cursor 配置数据库结构已变化，RelayDock 已停止写入。")
