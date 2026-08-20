@@ -18,7 +18,7 @@
 </head>
 <body>
   <h1>Install RelayDock</h1>
-  <p class="subtle">RelayDock 0.5.7 · Direct access to the Codex Desktop setup guide</p>
+  <p class="subtle">RelayDock 0.6.0 · OpenAI Compatible Cursor setup and OpenCode</p>
 
   <div class="card">
     <strong>Easiest: paste one command</strong>
@@ -27,7 +27,7 @@
     <p>Enter <code>y</code> to confirm, then provide your Mac login password. The script downloads the latest release from GitHub, checks its published SHA-256 hash and existing app signature for integrity, installs it, and opens RelayDock. These checks are not a substitute for Apple notarization.</p>
   </div>
 
-  <p class="note"><strong>Security scope:</strong> The app installer does not disable Gatekeeper globally, install a trusted root CA, or change the system proxy. For this unsigned test build, it removes quarantine only from the installed RelayDock copy and creates a stable RelayDock-only signing identity in <code>~/Library/Keychains/RelayDockLocalSigning.keychain-db</code>. No TLS trust is added during app installation. If you later select an Anthropic endpoint for Cursor, RelayDock separately asks macOS to trust one <code>CA:FALSE</code> leaf whose SAN is only <code>api.anthropic.com</code>. The uninstaller removes both identities and that trust.</p>
+  <p class="note"><strong>Security scope:</strong> The app installer does not disable Gatekeeper globally, install a trusted root CA, change the system proxy, or install a TLS interception certificate. For this unsigned test build, it removes quarantine only from the installed RelayDock copy and creates a stable RelayDock-only signing identity in <code>~/Library/Keychains/RelayDockLocalSigning.keychain-db</code>. The uninstaller also removes certificate material left by older Bridge releases.</p>
   <p><strong>Upgrading from an older build:</strong> Launch, endpoint switching, model sync, and other ordinary actions never open old ACL-bound Keychain items. When an older vault or per-endpoint item is found, the UI offers <strong>Repair Keychain once</strong>; macOS may request access only after you choose it. RelayDock commits the v3 vault only after every old key was read and the new vault passed non-interactive verification. Failure leaves the original data untouched. If an old ACL item cannot be deleted silently, an empty verified v3 tombstone prevents it from being imported again after the last active key is removed.</p>
   <p><strong>Signature continuity:</strong> the one-line script, ZIP, DMG, and in-app updater share one transactional installer. It compares the designated requirement before replacement and verifies version, signature, and requirement afterward; failure restores the previous app. A damaged local signing identity is never rotated silently: repair requires separate confirmation and preserves the old material in a Recovery directory.</p>
   <p><strong>Do not replace the app manually:</strong> the raw app payload is kept inside hidden <code>.payload</code>, and the DMG no longer offers an Applications drag target. Use the installer so requirement checks and rollback cannot be bypassed.</p>
@@ -63,15 +63,15 @@
 
   <h2>One-click Cursor setup</h2>
   <ol>
-    <li>Save and verify at least one OpenAI Compatible and/or Anthropic endpoint.</li>
-    <li>In <strong>Cursor one-click Sub2API</strong>, choose the endpoint for each protocol and click <strong>Configure and open Cursor</strong>.</li>
-    <li>For OpenAI Compatible, RelayDock writes Cursor's OpenAI key, Override Base URL, and verified model IDs. For Anthropic, it writes only the Claude key and routes Cursor's fixed <code>api.anthropic.com</code> destination through the local Bridge.</li>
-    <li>The first Anthropic setup requests a macOS trust authorization once. RelayDock reports success only after the certificate, bridge, Cursor database transaction, and Cursor encrypted-key migration all verify.</li>
+    <li>Save and verify an OpenAI Compatible endpoint.</li>
+    <li>In <strong>Cursor one-click Sub2API</strong>, choose that endpoint and click <strong>Configure and open Cursor</strong>.</li>
+    <li>RelayDock writes Cursor's OpenAI key, Override Base URL, and verified model IDs. Cursor's Anthropic cloud path does not support a custom local endpoint; expose those models through non-<code>claude-*</code> OpenAI-compatible aliases instead.</li>
+    <li>RelayDock reports success only after the Cursor database transaction and encrypted-key migration verify.</li>
   </ol>
 
-  <p class="note"><strong>Bridge scope and egress:</strong> the listener is loopback-only. Non-target domains remain encrypted byte tunnels. TLS termination and endpoint rewriting occur only for <code>api.anthropic.com</code>. The Bridge first preserves the inherited <code>HTTP_PROXY</code>/<code>HTTPS_PROXY</code>/<code>ALL_PROXY</code>, otherwise follows the macOS default HTTP proxy and exception rules, then uses HTTP CONNECT for egress; it never silently falls back to a direct connection. Unsupported SOCKS/PAC modes stop with an explicit error. RelayDock model tests and GitHub updates use the same route selection. Request bodies, responses, prompts, headers, and keys are never logged. Keep RelayDock running while using this route.</p>
+  <p class="note"><strong>Network behavior:</strong> RelayDock does not proxy or intercept Cursor traffic. RelayDock's own model tests and GitHub updates honor inherited <code>HTTP_PROXY</code>/<code>HTTPS_PROXY</code>/<code>ALL_PROXY</code> settings or the macOS default HTTP proxy and its exceptions; unsupported SOCKS/PAC modes fail closed rather than silently bypassing the proxy.</p>
 
   <h2>Uninstall</h2>
-  <p>Run <code>Uninstall RelayDock.command</code> through <code>/bin/zsh</code>. It removes the app, endpoints and Keychain API keys, generated OpenCode configuration, Cursor rollback files, Anthropic Bridge certificate/private key/trust, and the private local signing keychain. RelayDock never installs a root CA or changes the global system proxy.</p>
+  <p>Run <code>Uninstall RelayDock.command</code> through <code>/bin/zsh</code>. It removes the app, endpoints and Keychain API keys, generated OpenCode configuration, Cursor rollback files, any certificate material left by older Bridge releases, and the private local signing keychain. RelayDock never installs a root CA or changes the global system proxy.</p>
 </body>
 </html>

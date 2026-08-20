@@ -1,6 +1,6 @@
 # RelayDock
 
-RelayDock is a native macOS launcher and endpoint bridge project for AI coding tools.
+RelayDock is a native macOS launcher and endpoint-setup app for AI coding tools.
 
 ## Fastest installation
 
@@ -32,7 +32,11 @@ OpenAI-compatible alias and verify that alias in RelayDock first. The app and
 its update/model-sync requests still honor the existing local/default egress
 proxy; no Cursor traffic is intercepted.
 
-Version 0.5.7 adds a Help & Setup Guide link to the app sidebar and menu bar.
+## Release history
+
+### v0.5.7
+
+Adds a Help & Setup Guide link to the app sidebar and menu bar.
 It opens the repository's [Codex Desktop Sub2API setup guide](docs/CODEX_SUB2API_SETUP.md),
 including a reusable Computer Use prompt, secret-handling rules, and the
 verification steps for a Composite OpenAI-compatible endpoint. The guide
@@ -134,25 +138,17 @@ does not complete.
 - Provider-aware endpoint health checks and model catalog requests.
 - Catalog synchronization keeps text-generation candidates for coding tools;
   Azure's retired legacy deployment-list mode requires manual deployment IDs.
-- A functional Sub2API Bridge bound to `127.0.0.1` on a random port. Requests
-  for `api.anthropic.com` are terminated and rewritten; every other CONNECT stays
-  a byte tunnel and absolute-form `http://` requests are forwarded unchanged in
-  meaning.
 - Transactional Cursor 3.x configuration import with a mode-`0600` rollback
   snapshot and verification that Cursor migrated temporary keys into its own
   encrypted SecretStorage.
 - OpenAI-compatible Cursor import writes the selected Base URL/key and verified
-  model IDs. Anthropic import writes only the Claude key; the loopback bridge
-  rewrites the fixed Anthropic destination to the selected HTTPS gateway.
-- Streaming Anthropic request/response forwarding over HTTP/1.1, including SSE;
-  prompts, bodies, responses, and credentials are never logged.
-- A self-signed leaf certificate scoped to `api.anthropic.com` only (`CA:FALSE`,
-  server-auth EKU), with one-click install and removal.
+  model IDs. Anthropic-family gateways remain available for OpenCode and model
+  verification; Cursor requires an OpenAI-compatible alias route.
 - The bundled uninstaller removes settings, generated OpenCode files,
   credentials, and the private local signing identity.
-- No global system-proxy change and no CA installed system-wide. Chromium uses
-  the explicitly installed `api.anthropic.com` leaf trust; Cursor's Node issuer
-  is process-scoped, name-constrained, and cannot sign again after setup.
+- No global system-proxy change, no TLS interception certificate, and no Cursor
+  traffic interception. RelayDock's own model and update requests preserve the
+  user's existing/default supported HTTP proxy route.
 
 ## Build
 
@@ -183,11 +179,8 @@ system proxy. For this unsigned test build, it removes quarantine only from the
 installed RelayDock copy and signs it with a stable RelayDock-only identity stored
 in `~/Library/Keychains/RelayDockLocalSigning.keychain-db`. The installer names
 this keychain explicitly when signing; it is not added to the user's general
-Keychain search list and no TLS trust is added during app installation. If the user later
-enables the Anthropic Bridge, RelayDock separately asks macOS to trust one
-`CA:FALSE` leaf for `api.anthropic.com`. The uninstaller removes that trust,
-certificate/private key and signing keychain. It also cleans an old search-list
-entry left by earlier releases.
+Keychain search list and no TLS trust is added during app installation. The
+uninstaller also removes any certificate material left by prior Bridge releases.
 
 RelayDock never reads API Key bytes at startup or when switching endpoints.
 When an older Keychain vault or per-endpoint item exists, the app offers an
@@ -218,14 +211,14 @@ Artifacts are written to `dist/`:
 The DMG contains:
 
 - `Install Guide.html` and `安装说明.html`, with matching English and Chinese
-  step-by-step install, Cursor Bridge, and OpenCode guides.
+  step-by-step install, Cursor OpenAI Compatible, and OpenCode guides.
 - `Install RelayDock.command`, which copies the app to `/Applications`, removes
   the quarantine attribute from that local copy, and applies a stable local
   RelayDock-only signature. The ZIP and application updater invoke this same
   installer rather than maintaining separate replacement logic.
 - `Uninstall RelayDock.command`, which removes the app, RelayDock preferences,
-  all endpoint API keys, generated configuration, the Anthropic Bridge
-  certificate/private key/trust, and the private signing keychain.
+  all endpoint API keys, generated configuration, any legacy Bridge certificate
+  material, and the private signing keychain.
 
 For an unsigned personal build, open Terminal, type `/bin/zsh ` (including the
 trailing space), drag `Install RelayDock.command` from the mounted DMG into the
