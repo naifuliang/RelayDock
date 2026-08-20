@@ -81,21 +81,6 @@ final class UpstreamProxyTests: XCTestCase {
         XCTAssertTrue(proxiedPolicy.permitsRedirect(to: URL(string: "https://asset.example/file")!))
     }
 
-    func testConnectResponsePreservesLargeCoalescedTunnelBytes() {
-        let leftover = Data(repeating: 0x16, count: 32 * 1024)
-        var response = Data("HTTP/1.1 200 Connection Established\r\nProxy-Agent: test\r\n\r\n".utf8)
-        response.append(leftover)
-
-        XCTAssertEqual(
-            HTTPProxyConnectResponseParser.parse(response),
-            .established(leftover: leftover)
-        )
-        XCTAssertEqual(
-            HTTPProxyConnectResponseParser.parse(Data(repeating: 0x41, count: 16 * 1024 + 1)),
-            .malformed
-        )
-    }
-
     func testHTTPProxyIsUsedAsFallbackForHTTPSDestination() throws {
         let route = try UpstreamProxyResolver.environmentRoute(
             to: XCTUnwrap(URL(string: "https://api.anthropic.com/")),

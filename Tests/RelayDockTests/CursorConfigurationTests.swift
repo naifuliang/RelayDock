@@ -23,14 +23,13 @@ final class CursorConfigurationTests: XCTestCase {
         }
     }
 
-    func testApplyWritesRoutesModelsAndLegacyMigrationKeysThenRollbackRestoresExactly() throws {
+    func testApplyWritesOpenAICompatibleRouteModelsAndKeyThenRollbackRestoresExactly() throws {
         let originalStorage = try databaseValue(forKey: CursorConfiguration.persistentStorageKey)
         let receipt = try CursorConfiguration.apply(
             CursorImportRequest(
                 openAIBaseURL: "https://gateway.example/v1/",
                 openAIKey: "  openai-secret  ",
-                anthropicKey: "anthropic-secret",
-                modelIDs: ["gpt-test", "claude-test", "gpt-test"]
+                modelIDs: ["gpt-test", "gpt-test"]
             ),
             databaseURL: databaseURL,
             backupDirectory: backupDirectory,
@@ -42,15 +41,13 @@ final class CursorConfigurationTests: XCTestCase {
         let storage = try XCTUnwrap(try JSONSerialization.jsonObject(with: storageData) as? [String: Any])
         XCTAssertEqual(storage["openAIBaseUrl"] as? String, "https://gateway.example/v1")
         XCTAssertEqual(storage["useOpenAIKey"] as? Bool, true)
-        XCTAssertEqual(storage["useClaudeKey"] as? Bool, true)
         let settings = try XCTUnwrap(storage["aiSettings"] as? [String: Any])
-        XCTAssertEqual(settings["userAddedModels"] as? [String], ["existing-model", "gpt-test", "claude-test"])
-        XCTAssertEqual(settings["modelOverrideEnabled"] as? [String], ["existing-model", "gpt-test", "claude-test"])
+        XCTAssertEqual(settings["userAddedModels"] as? [String], ["existing-model", "gpt-test"])
+        XCTAssertEqual(settings["modelOverrideEnabled"] as? [String], ["existing-model", "gpt-test"])
         XCTAssertEqual(settings["modelOverrideDisabled"] as? [String], ["disabled-model"])
         XCTAssertEqual(try databaseValue(forKey: CursorConfiguration.openAILegacyKey), "openai-secret")
-        XCTAssertEqual(try databaseValue(forKey: CursorConfiguration.claudeLegacyKey), "anthropic-secret")
         XCTAssertNil(try databaseValue(forKey: CursorConfiguration.openAISecretKey))
-        XCTAssertNil(try databaseValue(forKey: CursorConfiguration.claudeSecretKey))
+        XCTAssertEqual(try databaseValue(forKey: "secret://cursorAuth/claudeKey"), "old-claude-encrypted")
 
         let attributes = try FileManager.default.attributesOfItem(atPath: receipt.backupURL.path)
         XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
@@ -62,9 +59,8 @@ final class CursorConfigurationTests: XCTestCase {
         )
         XCTAssertEqual(try databaseValue(forKey: CursorConfiguration.persistentStorageKey), originalStorage)
         XCTAssertEqual(try databaseValue(forKey: CursorConfiguration.openAISecretKey), "old-openai-encrypted")
-        XCTAssertEqual(try databaseValue(forKey: CursorConfiguration.claudeSecretKey), "old-claude-encrypted")
+        XCTAssertEqual(try databaseValue(forKey: "secret://cursorAuth/claudeKey"), "old-claude-encrypted")
         XCTAssertNil(try databaseValue(forKey: CursorConfiguration.openAILegacyKey))
-        XCTAssertNil(try databaseValue(forKey: CursorConfiguration.claudeLegacyKey))
         XCTAssertFalse(FileManager.default.fileExists(atPath: receipt.backupURL.path))
     }
 
@@ -73,7 +69,6 @@ final class CursorConfigurationTests: XCTestCase {
             CursorImportRequest(
                 openAIBaseURL: "https://sub2api.example",
                 openAIKey: "openai-secret",
-                anthropicKey: nil,
                 modelIDs: ["gpt-test"]
             ),
             databaseURL: databaseURL,
@@ -111,7 +106,6 @@ final class CursorConfigurationTests: XCTestCase {
             CursorImportRequest(
                 openAIBaseURL: "https://gateway.example/v1",
                 openAIKey: "openai-secret",
-                anthropicKey: nil,
                 modelIDs: []
             ),
             databaseURL: databaseURL,
@@ -131,7 +125,6 @@ final class CursorConfigurationTests: XCTestCase {
             CursorImportRequest(
                 openAIBaseURL: "https://gateway.example/v1",
                 openAIKey: "openai-secret",
-                anthropicKey: nil,
                 modelIDs: []
             ),
             databaseURL: databaseURL,
@@ -150,7 +143,6 @@ final class CursorConfigurationTests: XCTestCase {
             CursorImportRequest(
                 openAIBaseURL: "https://gateway.example/v1",
                 openAIKey: "key",
-                anthropicKey: nil,
                 modelIDs: []
             ),
             databaseURL: databaseURL,
@@ -167,7 +159,6 @@ final class CursorConfigurationTests: XCTestCase {
             CursorImportRequest(
                 openAIBaseURL: "https://gateway.example/v1",
                 openAIKey: "new-key",
-                anthropicKey: nil,
                 modelIDs: ["gpt-test"]
             ),
             databaseURL: databaseURL,
@@ -195,10 +186,9 @@ final class CursorConfigurationTests: XCTestCase {
             GatewayModel(modelID: "disabled", isEnabled: false, isVerified: true)
         ]
         let openAI = GatewayProfile(provider: .openAICompatible, models: models)
-        let anthropic = GatewayProfile(provider: .anthropic, models: models)
         let responses = GatewayProfile(provider: .openAIResponses, models: models)
         XCTAssertEqual(CursorModelRouting.modelIDs(for: openAI), ["gpt-5"])
-        XCTAssertEqual(CursorModelRouting.modelIDs(for: anthropic), ["claude-sonnet-4"])
+        XCTAssertEqual(CursorModelRouting.modelIDs(for: GatewayProfile(provider: .anthropic, models: models)), [])
         XCTAssertEqual(CursorModelRouting.modelIDs(for: responses), [])
     }
 
@@ -220,7 +210,7 @@ final class CursorConfigurationTests: XCTestCase {
         let data = try JSONSerialization.data(withJSONObject: storage, options: [.sortedKeys])
         try setValue(String(decoding: data, as: UTF8.self), forKey: CursorConfiguration.persistentStorageKey, database: database)
         try setValue("old-openai-encrypted", forKey: CursorConfiguration.openAISecretKey, database: database)
-        try setValue("old-claude-encrypted", forKey: CursorConfiguration.claudeSecretKey, database: database)
+        try setValue("old-claude-encrypted", forKey: "secret://cursorAuth/claudeKey", database: database)
     }
 
     private func databaseValue(forKey key: String) throws -> String? {

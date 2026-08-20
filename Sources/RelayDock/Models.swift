@@ -341,59 +341,6 @@ enum ModelCatalogParser {
     }
 }
 
-struct ProxyEvent: Identifiable, Equatable {
-    enum Kind: String {
-        case connected
-        case tunneled
-        case failed
-    }
-
-    let id = UUID()
-    let timestamp: Date
-    let host: String
-    let port: UInt16
-    let kind: Kind
-    let detail: String
-
-    var isAnthropic: Bool {
-        host == "api.anthropic.com" || host.hasSuffix(".anthropic.com")
-    }
-}
-
-enum ProbeVerdict: Equatable {
-    case waiting
-    case directAnthropic
-    case cursorBackendOnly
-
-    var title: String {
-        switch self {
-        case .waiting: return L10n.t("Waiting for a Cursor request", zh: "等待 Cursor 请求")
-        case .directAnthropic: return L10n.t("Detected a local Anthropic connection", zh: "检测到 Anthropic 本机直连")
-        case .cursorBackendOnly: return L10n.t("Only Cursor backend traffic detected so far", zh: "目前只检测到 Cursor 后端")
-        }
-    }
-
-    var explanation: String {
-        switch self {
-        case .waiting:
-            return L10n.t(
-                "Launch Cursor through RelayDock, then send an Anthropic BYOK message.",
-                zh: "通过 RelayDock 启动 Cursor 后，用 Anthropic BYOK 发送一条消息。"
-            )
-        case .directAnthropic:
-            return L10n.t(
-                "Cursor on this Mac is connecting to api.anthropic.com directly, so you can enable the domain-scoped TLS Bridge.",
-                zh: "这台机器上的 Cursor 直接连接 api.anthropic.com，可以继续启用定向 TLS Bridge。"
-            )
-        case .cursorBackendOnly:
-            return L10n.t(
-                "Requests may be sent by the Cursor backend. Send another Anthropic BYOK message to confirm.",
-                zh: "请求可能由 Cursor 后端代发。继续发送一条 Anthropic BYOK 消息以确认。"
-            )
-        }
-    }
-}
-
 enum ConnectRequestParser {
     struct Request: Equatable {
         let host: String

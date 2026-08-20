@@ -8,8 +8,8 @@ final class InstallerContinuityTests: XCTestCase {
         let plist = try XCTUnwrap(
             PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
         )
-        XCTAssertEqual(plist["CFBundleShortVersionString"] as? String, "0.5.7")
-        XCTAssertEqual(plist["CFBundleVersion"] as? String, "13")
+        XCTAssertEqual(plist["CFBundleShortVersionString"] as? String, "0.6.0")
+        XCTAssertEqual(plist["CFBundleVersion"] as? String, "14")
         XCTAssertEqual(plist["CFBundleDevelopmentRegion"] as? String, "en")
     }
 
